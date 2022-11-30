@@ -2,10 +2,24 @@
 rm(list = ls())
 path2home <- ""
 datapath <- "home/akfin/"
-myfolder <- "jraymond"
+sub_dir <- "jraymond"
+main_dir <- paste(path2home, datapath, sep = "")
 
-setwd(paste(path2home, datapath, sep = ""))
-dir.create(myfolder)
+#Run this once and then comment out
+dir.create(sub_dir)
+
+# check if sub directory exists 
+if (file.exists(sub_dir)){
+  # specifying the working directory
+  setwd(file.path(main_dir, sub_dir))
+} else {
+  # create a new sub directory inside
+  # the main path
+  dir.create(file.path(main_dir, sub_dir))
+  # specifying the working directory
+  setwd(file.path(main_dir, sub_dir))
+}
+
 
 #install packages not installed in your environment, some are included here in anticipation of future needs
 packs <- c('readr', 'tidyverse', 'lubridate', 'leaflet', 'dplyr', 'gtools', 'ggplot2', 'sf', 'scales', 'ggmap',
@@ -36,3 +50,6 @@ for (i in 1:length(test)){
   temp <- read.csv(tempfile)
   df <- df.append()
 }
+
+
+rm(list = ls())
