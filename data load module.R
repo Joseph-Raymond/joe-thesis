@@ -1,7 +1,6 @@
-
 rm(list = ls())
-path2home <- ""
-datapath <- "home/akfin/"
+path2home <- "test"
+datapath <- "/home/akfin/"
 sub_dir <- "jraymond"
 main_dir <- paste(path2home, datapath, sep = "")
 
