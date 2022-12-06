@@ -15,18 +15,27 @@ if (file.exists(file.path(main_dir, sub_dir))){
   dir.create(file.path(main_dir, sub_dir))
   # specifying the working directory
   setwd(file.path(main_dir, sub_dir))}
-#loads my packages. If not installed in your environment, the missing ones gte installed
-{packs <- c('readr', 'tidyverse', 'lubridate', 'leaflet', 'dplyr', 'gtools', 'ggplot2', 'sf', 'scales', 'ggmap','chron', 'zipcodeR', 'stringr','RColorBrewer','cowplot', 'ggcorrplot', "Hmisc")
-new.packages <- packs[!(packs %in% installed.packages()[,"Package"])]
-if(length(new.packages)) install.packages(new.packages)
-lapply(packs, require, character.only = T)}
 
 filenames <- list.files(path = "../", pattern="*.csv")
 filepaths <- (file.path("..",filenames))#navigate up with the ".."
-#myfiles <- myfiles[1:2]#select the first two files as a test
-df <- lapply(myfiles, read.delim)
+filepaths# view the files to get the ones you would like
 
-#
+i <- 29#corresponds to 2019 data file
+#i <- 28:29# 2018 : 2019
+myfiles <- filepaths[i]#select 2019 files as a test
+dlist <- lapply(myfiles, read.delim)
+
+getwd()#MAKE SURE THE WD IS IN THE CORRECT PLACE!! Must be a subfolder of your data folder
+save(dlist, file = "data_2019.RData")
 
 rm(list = ls()) #clear memory
+
+#Packages not required for the loading/saving of the data
+#loads my packages. If not installed in your environment, the missing ones are installed
+{packs <- c('readr', 'tidyverse', 'lubridate', 'leaflet', 'dplyr', 'gtools', 'ggplot2', 'sf', 'scales', 'ggmap','chron', 'zipcodeR', 'stringr','RColorBrewer','cowplot', 'ggcorrplot', "Hmisc")
+  new.packages <- packs[!(packs %in% installed.packages()[,"Package"])]
+  if(length(new.packages)) install.packages(new.packages)
+  lapply(packs, require, character.only = T)}
+
 #"ssh -L localhost:8989:localhost:3389 jraymond@makena.ucdavis.edu", and then connect to "localhost:8989"
+# git reset HEAD~   #command to go back one commit on the local branch
