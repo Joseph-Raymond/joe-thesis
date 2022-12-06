@@ -20,13 +20,15 @@ filenames <- list.files(path = "../", pattern="*.csv")
 filepaths <- (file.path("..",filenames))#navigate up with the ".."
 filepaths# view the files to get the ones you would like
 
-i <- 29#corresponds to 2019 data file
+i <- 28#corresponds to 2018 data file
 #i <- 28:29# 2018 : 2019
-myfiles <- filepaths[i]#select 2019 files as a test
-dlist <- lapply(myfiles, read.delim)
+myfiles <- filepaths[i]#select 2018 files as a test
+dlist <- lapply(myfiles, read.csv)
 
+
+#filter / clean the data you need here
 getwd()#MAKE SURE THE WD IS IN THE CORRECT PLACE!! Must be a subfolder of your data folder
-save(dlist, file = "data_2019.RData")
+save(dlist, file = "data_2018.RData")
 
 rm(list = ls()) #clear memory
 
