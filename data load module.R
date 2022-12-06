@@ -1,5 +1,5 @@
 #creates subfolder ('jraymond') in the data folder. then loads the data from the parent data folder ('akfin') into a list of data frames. the memory is all kept on the subfolder
-#
+#test change
 rm(list = ls())
 path2home <- ""#my available directory stops at "home" so this is just blank
 datapath <- "/home/akfin/"
