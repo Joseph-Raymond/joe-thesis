@@ -1,4 +1,5 @@
-#file description
+#creates subfolder ('jraymond') in the data folder. then loads the data from the parent data folder ('akfin') into a list of data frames. the memory is all kept on the subfolder
+#
 rm(list = ls())
 path2home <- ""#my available directory stops at "home" so this is just blank
 datapath <- "/home/akfin/"
@@ -22,9 +23,10 @@ lapply(packs, require, character.only = T)}
 
 filenames <- list.files(path = "../", pattern="*.csv")
 filepaths <- (file.path("..",filenames))#navigate up with the ".."
-myfiles <- myfiles[1:2]#select the first two files as a test
+#myfiles <- myfiles[1:2]#select the first two files as a test
 df <- lapply(myfiles, read.delim)
 
+#
 
-rm(list = ls())
+rm(list = ls()) #clear memory
 #"ssh -L localhost:8989:localhost:3389 jraymond@makena.ucdavis.edu", and then connect to "localhost:8989"
