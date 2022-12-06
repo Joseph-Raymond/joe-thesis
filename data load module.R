@@ -1,4 +1,4 @@
-
+#file description
 rm(list = ls())
 path2home <- ""#my available directory stops at "home" so this is just blank
 datapath <- "/home/akfin/"
