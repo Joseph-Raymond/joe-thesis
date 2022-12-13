@@ -28,7 +28,7 @@ dlist <- lapply(myfiles, read.csv)
 
 #filter / clean the data you need here
 getwd()#MAKE SURE THE WD IS IN THE CORRECT PLACE!! Must be a subfolder of your data folder
-save(dlist, file = "data_2018.RData")
+save(dlist_clean, file = "clean_data_2018.RData")
 
 rm(list = ls()) #clear memory
 
