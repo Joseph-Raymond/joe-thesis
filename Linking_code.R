@@ -4,7 +4,7 @@ datapath <- "/home/akfin/"
 sub_dir <- "jraymond"
 main_dir <- paste(path2home, datapath, sep = "")
 
-# check if sub directory exists and if it doesn't then create it.
+# check if sub directory exists and if it doesn't then create it. Otherwise set wd to the sub directory
 if (file.exists(file.path(main_dir, sub_dir))){
   # specifying the working directory
   setwd(file.path(main_dir, sub_dir))} else {
@@ -21,12 +21,12 @@ if (file.exists(file.path(main_dir, sub_dir))){
   lapply(packs, require, character.only = T)}
 getwd()
 
-vessels <- read.csv(file.path("../../jraymond/JoeData/clean_data/vessels_clean_1978_2022.csv"))
+vessels <- read.csv(file.path("~/JoeData/clean_data/vessels_clean_1978_2022.csv"))
 vessels <- vessels %>% filter(Year==2018)
 
-dlist <- load("data_2018.RData")
+load("./data_2018.RData")
 
-colnames(dlist[[1]])
+colnames(dlist[[1]]) 
 
 uvessels <- sort(unique(vessels$ADFG.Number))
 ulandings1 <- sort(unique(dlist[[1]]$Vessel.ADFG.Number))
@@ -34,25 +34,30 @@ ulandings2 <- sort(unique(dlist[[1]]$CFEC.Vessel.ADFG.Number))
 ulandings3 <- sort(unique(dlist[[1]]$AKR.Vessel.ADFG.Number))
 ulandings4 <- sort(unique(dlist[[1]]$CFEC.Permit.Vessel.ADFG.Number))
 
-sum()
+#lets use Vessel.ADFG.Number which seems to be the same as AKR.Vessel.ADFG.Number
+
 setequal(ulandings1, ulandings3)
 setequal(dlist[[1]]$Vessel.ADFG.Number, dlist[[1]]$AKR.Vessel.ADFG.Number)
 
 #use Vessel.ADFG.Number in the akfin data for the linking. Might need AKR.Vessel.ADFG.Number for other years
 
-all(uvessels %in% ulandings1)
+all(uvessels %in% ulandings1)#not all the registered vessels are in akfin data base
+all(ulandings1 %in% uvessels)#not all vessels in the akfin database are in the vessel data base
+rogue_vessels <- dlist[[1]] %>% filter(!Vessel.ADFG.Number %in% uvessels)#isolate these
+u_rogue_vessels <- sort(unique(rogue_vessels$Vessel.ADFG.Number))
+
 max(ulandings1)
 
 
 df <- dlist[[1]] %>% filter(Vessel.ADFG.Number %in% uvessels)
-df <- df %>% select(CFEC.Permit.Serial.Number,CFEC.Permit.Fishery,CFEC.Permit.Sequence,Permit.Serial.Number,CFEC.Permit.Type,Vessel.ADFG.Number)
+df <- dlist[[1]] %>% select(CFEC.Permit.Serial.Number,CFEC.Permit.Fishery,CFEC.Permit.Sequence,Permit.Serial.Number,CFEC.Permit.Type,Vessel.ADFG.Number)
+#test <- df %>% filter(CFEC.Permit.Serial.Number != Permit.Serial.Number | is.na(Permit.Serial.Number) | is.na(CFEC.Permit.Serial.Number))#one boat has missing permit numbers
+
 df_ag <- aggregate(Permit.Serial.Number~Vessel.ADFG.Number, unique(df), FUN=list)
-df_ag <- df_ag %>% mutate(nfisheries = length(Permit.Serial.Number))
-df <- merge(x = df, y = uvessels)
-df_ag$Permit.Serial.Number[[3]]
-length(df_ag$Permit.Serial.Number[[3]])
-class(df_ag$Permit.Serial.Number)
+ 
 
 for (i in 1:length(df_ag$Permit.Serial.Number)){
-  df_ag$nfisheries <- length(df_ag$Permit.Serial.Number[[i]])
+  df_ag$permit_count[[i]] <- length(df_ag$Permit.Serial.Number[[i]])
 }
+dlist <- dlist[[1]]
+test <- dlist[[1]] %>% filter(Permit.Serial.Number==99)
