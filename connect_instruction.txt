@@ -1,0 +1,19 @@
+
+First, if you don't have any other UC Davis VPNs installed, you'll need to set up the campus VPN according to the instructions at https://kb.ucdavis.edu/?id=6637. You should use the "Split tunnel" method as recommended in the article. You'll only need the VPN if you're connecting from off campus.
+Second, there are a few ways to access Makena, so you can choose what works best for you based on the software you'll be using.
+    Option 1: Remote Desktop (RDP). To connect via RDP, open an SSH tunnel to Makena with "ssh -L localhost:8989:localhost:3389 username@makena.ucdavis.edu", and then connect to "localhost:8989" in an RDP client on your computer. For more information, see https://kb.ucdavis.edu/?id=6636.
+    Option 2: RStudio Server. To connect via RStudio Server, open an SSH tunnel to Makena with "ssh -L localhost:8787:localhost:8787 username@makena.ucdavis.edu", and then connect to "localhost:8787" in a browser on your computer. Note that this SSH command is similar to the SSH command for RDP, but the port numbers are different.
+    Option 3: SSH. If you're comfortable working from the command line, you're also welcome to connect to Makena via regular SSH with "ssh username@makena.ucdavis.edu" and interact with Makena using standard shell commands. I've written a "Useful Linux Commands" document that you can find at https://are.ucdavis.edu/Ph.D./current-students/computing-resources/.
+Third, here's how files are organized on Makena:
+Joseph, you have access to the /home/akfin/ shared folder.
+Frederik, you have access to the /home/pacfin/ shared folder.
+Ed, you have access to the /home/charter/ shared folder.
+If you need to move files between Makena and your local computer, you can use an SFTP client like FileZilla: https://kb.ucdavis.edu/?id=6634.
+Finally, some extra notes:
+Makena reboots every Thursday at noon for weekly scheduled maintenance. If you need this maintenance postponed for any reason, please reach out to me.
+There are a few ways to run code unattended on Makena:
+If you're using RDP, you can disconnect from your session without closing your running programs. Anything that's open will continue to run until you end your session or the server reboots.
+If you're using RStudio Server, check out how to use the "background jobs" feature: https://posit.co/blog/rstudio-1-2-jobs/. Additionally, you can run selected lines in the background by going to "Code > Run Selection as Background Job" in the menu bar.
+You can use the "submit" script to run an entire script in the background. The submit script is useful because it will send you a notification email when your code finishes running. To use submit, use the command line to navigate to the directory containing your code, and run "submit filename.X" (i.e. submit simulations.R).
+
+Please let me know if you have any questions or if you'd like to schedule a Zoom meeting so that I can walk you through some or all of the instructions above. I'm happy to set up one big Zoom meeting for as many people as are interested.
