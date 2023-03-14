@@ -458,7 +458,7 @@ for (i in datalist[27:30]) {
 
 
 
-
+#take only boats from blist and plot landing ports
 plot_boatport <- function(path, blist, year){
   df <- read.csv(file.path(path)) %>% group_by(Vessel.ADFG.Number) %>% filter(any(Vessel.ADFG.Number %in% blist)) %>% 
     arrange(by_group = TRUE) %>% 
@@ -475,11 +475,11 @@ plot_boatport <- function(path, blist, year){
       mutate(permit_species = replace(permit_species, permit_species == "D", "DUNGENESS CRAB")) %>% 
       mutate(permit_species = replace(permit_species, permit_species == "S", "SALMON")) %>% 
       mutate(permit_species = replace(permit_species, permit_species == "C", "SABLEFISH")) %>% 
-      ggplot(aes(x = week)) +geom_bar(aes(fill = permit_species)) + 
+      ggplot(aes(port var)) +geom_bar() + 
       scale_x_date(date_labels = "%b")+
-      xlab("Week")+
-      ylab("Weekly Counts of Landings")+
-      ggtitle(paste0("Distribution of Landings by Permit Species (only boats that fish multiple species) ", year))}
+      xlab("Port")+
+      ylab("Annual Count of Landings")+
+      ggtitle(paste0("Port Landings (Salmon only), ", year))}
 
   return(plot1) # requires 'patchwork' package
 }
