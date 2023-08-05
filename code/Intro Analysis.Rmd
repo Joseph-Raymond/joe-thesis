@@ -1,0 +1,167 @@
+---
+title: "Intro_analysis"
+author: "Joe Raymond"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Identifying Strategies Among Vessels 
+
+```{r prod_reg}
+#.rs.restartR()
+#rm()
+#loads my packages. If not installed in your environment, the missing ones are installed
+{packs <- c('readr', 'tidyverse', 'lubridate', 'leaflet', 'dplyr', 'gtools', 'ggplot2', 'sf', 'scales', 'ggmap','chron', 'zipcodeR', 'stringr','RColorBrewer','cowplot', 'ggcorrplot', "Hmisc", 'patchwork', 'xlsx')
+new.packages <- packs[!(packs %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+lapply(packs, require, character.only = T)}#probably could just use loadpacks but this should work
+getwd()
+
+setwd("/home/akfin/jraymond/Rprojects/joe-thesis")
+source("code/myfunctions.R")
+#source("myfunctions.R")
+
+data_dir <- "./../../../"
+#want to load data filter it by salmon boats then store that year of data in a list
+datalist <- list.files(data_dir, pattern = "*.csv")
+catch_data <- list()
+j <- 1
+for (i in datalist[15:length(datalist)]) {#15 starts at 2005
+  temp <- read.csv(file.path(paste0(data_dir, i))) %>%
+    select(Pre.print.Ticket, Ticket.Type, Batch.Year, Vessel.ADFG.Number, contains("Home"), contains("Owner"), Date.Landed, Date.Fishing.Began, AKR.Vessel.Length, Port.Code, Port.Name, Port.State, Council.Port, Species.Code, Species.Common.Name, CFEC.Species.Code, CFEC.PACFIN.Species.Code, CFEC.Permit.Year:Permit.Serial.Number, BLEND.Target.Group:CFEC.Whole.Pounds..Detail.) %>% 
+    mutate(permit.species = substr(CFEC.Permit.Fishery, 1, 1))
+  catch_data[[j]] <- temp
+  print(i)
+  j <- j+1
+}
+#Now standardize the types of data from different years of data because some years are entered as different data types
+for (i in 1:length(catch_data)) {
+  catch_data[[i]]$Vessel.ADFG.Number <- as.numeric(catch_data[[i]]$Vessel.ADFG.Number)
+  catch_data[[i]]$Permit.Year.Sequence <- as.numeric(catch_data[[i]]$Permit.Year.Sequence)
+  catch_data[[i]]$Pre.print.Ticket <- as.character(catch_data[[i]]$Pre.print.Ticket)
+  catch_data[[i]]$CFEC.Vessel.Owner.Zip <- as.character(catch_data[[i]]$CFEC.Vessel.Owner.Zip)
+}#clean some variables before combining them all together
+catch_data_temp <- bind_rows(catch_data) %>% group_by(Vessel.ADFG.Number)# %>% filter(any(substr(CFEC.Permit.Fishery, 1, 1) == "S")) %>% ungroup()#boats that have participated in salmon fishery in the sample
+catch_data_temp["CFEC.Value..Detail."][is.na(catch_data_temp["CFEC.Value..Detail."])] <- 0#fill the na's with 0
+write.csv(catch_data_temp, "intermediate data/2005_2021_tickets.csv", row.names = TRUE)
+catch_data_temp <- read.csv("intermediate data/2005_2021_tickets.csv")
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+get.primeport <- function(df){
+  df <- df %>% 
+    group_by(Vessel.ADFG.Number, Council.Port, Batch.Year) %>% 
+    summarise(port.revenue = sum(CFEC.Value..Detail.), num.trips = n_distinct(trip.id)) %>% 
+    mutate(revenue.per.trip = port.revenue/num.trips)
+  #reduce on the permit variable based on the value of the summed revenue from the previous step
+  df_test <- df %>% ungroup() %>% group_by(Batch.Year, Vessel.ADFG.Number) %>% 
+    mutate(max.rev = max(port.revenue)) %>% 
+    filter(port.revenue==max(port.revenue), port.revenue>0) %>% 
+    select(Vessel.ADFG.Number, Council.Port, Batch.Year) %>% 
+    rename(prime.port=Council.Port)
+  #summarise(max.rev = max(port.revenue))
+  df <- df %>% ungroup() %>% left_join(df_test, by = join_by(Batch.Year, Vessel.ADFG.Number)) %>% mutate(is.primeport = (Council.Port==prime.port))
+  return(df)
+}
+catch_data_temp <- get.trip(catch_data_temp)
+catch_data_temp$trip.duration <- as.numeric(catch_data_temp$trip.length)+1
+catch_data_temp <- catch_data_temp %>% filter(trip.duration>0)
+catch_data_temp <- catch_data_temp %>% mutate(trip.prod = CFEC.Value..Detail./trip.duration)
+
+p<-catch_data_temp %>% group_by(Vessel.ADFG.Number, Batch.Year, trip.id) %>% summarise(revenue = sum(CFEC.Value..Detail.), prod = sum(trip.prod), species = first(Species.Code)) %>% ungroup() %>% group_by(Batch.Year, species) %>% summarise(fishery.prod = mean(prod)) %>% 
+  ggplot(df2, aes(x=Batch.Year, y=fishery.prod, group=species)) +
+  geom_line(aes(color=species))+
+  geom_point(aes(color=species))
+p
+
+
+df.primmeport <- get.primeport(catch_data_temp)
+productivty <- df.primmeport %>% ungroup() %>% filter(!is.na(is.primeport)) %>% group_by(Batch.Year, Vessel.ADFG.Number) %>% summarise(mean.trip.revenue = mean(revenue.per.trip))
+
+test <- df.primmeport %>% mutate(prime.port=0) 
+which(duplicated(test))
+
+df.primmeport <- df.primmeport %>% ungroup() %>% group_by(Vessel.ADFG.Number, Batch.Year) %>% mutate(year.revenue = sum(port.revenue)) %>% ungroup()
+
+
+#Specialists
+{
+  boatlist <- catch_data_temp  %>% mutate(permit_species=substr(CFEC.Permit.Fishery, 1, 1)) %>% group_by(Vessel.ADFG.Number) %>% mutate(s_specialist = if_else(all(permit_species=="S"), 1, 0)) %>% ungroup() %>% select(Vessel.ADFG.Number, s_specialist) %>% distinct(Vessel.ADFG.Number, s_specialist)
+  catch_data_temp <- catch_data_temp %>% mutate(permit_species=substr(CFEC.Permit.Fishery, 1, 1)) %>% group_by(Vessel.ADFG.Number) %>% mutate(s_specialist = if_else(all(permit_species=="S"), 1, 0)) %>% ungroup()
+  #now add a check if the boat is a permit specialist for a given year
+  catch_data_temp <- catch_data_temp %>% group_by(Batch.Year, Vessel.ADFG.Number) %>%  mutate(permit.specialist = as.integer(n_distinct(CFEC.Permit.Fishery) == 1)) %>% ungroup()
+}
+
+#Productivity
+{
+  prod <- get.trip(catch_data_temp)
+  prod$trip.duration <- as.numeric(prod$trip.length)+1
+  prod <- prod %>% filter(trip.duration>0)#filter out negative trips
+  trip.revenue <- prod %>% group_by(Vessel.ADFG.Number, Batch.Year) %>% summarise(year.revenue=sum(CFEC.Value..Detail.), num.trips = n_distinct(trip.id), fishing.days = sum(trip.duration)) %>% mutate(revenue.per.trip = year.revenue/(num.trips*fishing.days))
+}
+#Prime port
+{
+  pport <- prod %>% mutate(trip.prod=CFEC.Value..Detail./trip.duration) %>% get.primeport()
+  pport <- pport %>% group_by(Batch.Year, Vessel.ADFG.Number) %>% mutate(year.rev=sum(port.revenue)) %>% ungroup()
+  }
+#Prime permit
+{}
+#Prime permit & port
+{}
+#Vessel length categories
+{catch_data_temp$length_cat <- cut(catch_data_temp$AKR.Vessel.Length,
+                                      breaks=c(10, 20, 30, 40, 50, 60, 1000),
+                                      labels=c('10-20', '20-30', '30-40', '40-50', '50-60', '60+'))
+  }
+#Permit Species
+{}
+#Fixed effect for stock (Permit Species) and maybe permit
+{}
+#attach data
+{
+  reg.data <- catch_data_temp %>% left_join(trip.revenue, join_by(Vessel.ADFG.Number, Batch.Year))
+  reg.data <- reg.data %>% group_by(Vessel.ADFG.Number, Batch.Year) %>% summarise(leng_cat = first(length_cat), num.trips = first(num.trips), revenue.per.trip=first(revenue.per.trip), fishing.days = first(fishing.days), year.revenue = first(year.revenue), permit.specialist = first(permit.specialist), s_specialist = first(s_specialist), Vessel.Length = first(AKR.Vessel.Length))
+}
+#regressinon 
+{
+  reg.data <- reg.data %>% filter(revenue.per.trip>0)
+  prod_reg <- lm(log(revenue.per.trip) ~ + leng_cat + s_specialist + permit.specialist + as.factor(Batch.Year), data = reg.data)
+  rev_reg <- lm(log(year.revenue) ~ + leng_cat + s_specialist + permit.specialist + as.factor(Batch.Year), data = reg.data)
+  library(sjPlot)
+  library(sjmisc)
+  library(sjlabelled)
+  library(stargazer)
+  tab_model(prod_reg)
+  tab_model(rev_reg)
+  
+  
+  
+  prod_reg_int <- lm(log(revenue.per.trip) ~ + leng_cat + s_specialist + permit.specialist + s_specialist:permit.specialist + as.factor(Batch.Year), data = reg.data)
+  rev_reg_int <- lm(log(year.revenue) ~  + leng_cat + s_specialist + permit.specialist + s_specialist:permit.specialist + as.factor(Batch.Year), data = reg.data)
+  stargazer(prod_reg,rev_reg,prod_reg_int, rev_reg_int,title="Regression Results", align=TRUE)  
+  #mylogit <- glm(revenue.per.trip ~ leng_cat + s_specialist + permit.specialist, data = reg.data, family = "binomial")
+  
+  prod %>% group_by(Vessel.ADFG.Number, Batch.Year) %>% summarise(s_specialist = first(s_specialist), permit.specialist = first(permit.specialist), CFEC.Permit.Fishery = c(first(CFEC.Permit.Fishery)), last(CFEC.Permit.Fishery)) %>% filter(s_specialist==1 & permit.specialist==0) %>% ungroup() %>% 
+    ggplot()+
+    geom_bar(aes(x = CFEC.Permit.Fishery))+
+    ylab("Count of vessels")+
+    theme(axis.text.x = element_text(angle = 90, vjust = 1))+
+    labs(title = "Number of Salmon Specialists and Non-Permit Specialists in Different Fisheries")
+    
+  }
+
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
