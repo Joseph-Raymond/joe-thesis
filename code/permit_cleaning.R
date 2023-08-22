@@ -1,11 +1,48 @@
-# data https://www.cfec.state.ak.us/plook/#permits
-rm(list = ls())
-#install packages not installed in your environment, some are included here in anticipation of future needs 28June2021
-packs <- c('readr', 'tidyverse', 'lubridate', 'leaflet', 'dplyr', 'gtools', 'ggplot2', 'sf', 'scales', 'ggmap', 
-           'chron', 'zipcodeR', 'stringr')
-lapply(packs, require, character.only = T)
+{packs <- c('readr', 'tidyverse', 'lubridate', 'leaflet', 'dplyr', 'gtools', 'ggplot2', 'sf', 'scales', 'ggmap','chron', 'zipcodeR', 'stringr','RColorBrewer','cowplot', 'ggcorrplot', "Hmisc", 'patchwork', 'xlsx', 'xtable', 'corrplot')
+new.packages <- packs[!(packs %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+lapply(packs, require, character.only = T)}#probably could just use loadpacks but this should work
+getwd()
 
-setwd("C:/Users/josep/Box Sync/Thesis/data/CFEC/permits")
+setwd("/home/akfin/jraymond/Rprojects/joe-thesis")
+source("code/myfunctions.R")
+#source("myfunctions.R")
+
+data_dir <- "./../../../"
+#want to load data filter it by salmon boats then store that year of data in a list
+datalist <- list.files(data_dir, pattern = "*.csv")
+permit_data <- list()
+j <- 1
+for (i in datalist[1:length(datalist)]) {#15 starts at 2005
+  temp <- read.csv(file.path(paste0(data_dir, i))) %>%
+    select(Pre.print.Ticket, Ticket.Type, Batch.Year, Vessel.ADFG.Number, contains("Home"), contains("Owner"), Date.Landed, Date.Fishing.Began, AKR.Vessel.Length, Port.Code, Port.Name, Port.State, Council.Port, Species.Code, Species.Common.Name, CFEC.Species.Code, CFEC.PACFIN.Species.Code, CFEC.Permit.Year:Permit.Serial.Number, BLEND.Target.Group:CFEC.Whole.Pounds..Detail.) %>% 
+    mutate(permit.species = substr(CFEC.Permit.Fishery, 1, 1))
+  catch_data[[j]] <- temp
+  print(i)
+  j <- j+1
+}
+#|CFEC.Species.Code=="B"|CFEC.Species.Code=="M"|CFEC.Species.Code=="C"|CFEC.Species.Code=="D"
+for (i in 1:length(catch_data)) {
+  catch_data[[i]]$Vessel.ADFG.Number <- as.numeric(catch_data[[i]]$Vessel.ADFG.Number)
+  catch_data[[i]]$Permit.Serial.Number <- as.numeric(catch_data[[i]]$Permit.Serial.Number)
+  catch_data[[i]]$Permit.Year.Sequence <- as.numeric(catch_data[[i]]$Permit.Year.Sequence)
+  catch_data[[i]]$Pre.print.Ticket <- as.character(catch_data[[i]]$Pre.print.Ticket)
+  catch_data[[i]]$CFEC.Vessel.Owner.Zip <- as.character(catch_data[[i]]$CFEC.Vessel.Owner.Zip)
+  catch_data[[i]]$CFEC.Vessel.Owner.Historical.Zip <- as.character(catch_data[[i]]$CFEC.Vessel.Owner.Historical.Zip)
+}#clean some variables before combining them all together
+catch_data_temp <- bind_rows(catch_data)
+save(catch_data_temp, file = "intermediate data/catch_data_temp.rdata")
+#Now standardize the types of data from different years of data because some years are entered as different data types
+for (i in 1:length(catch_data)) {
+  catch_data[[i]]$Vessel.ADFG.Number <- as.numeric(catch_data[[i]]$Vessel.ADFG.Number)
+  catch_data[[i]]$Permit.Year.Sequence <- as.numeric(catch_data[[i]]$Permit.Year.Sequence)
+  catch_data[[i]]$Pre.print.Ticket <- as.character(catch_data[[i]]$Pre.print.Ticket)
+  catch_data[[i]]$CFEC.Vessel.Owner.Zip <- as.character(catch_data[[i]]$CFEC.Vessel.Owner.Zip)
+}#clean some variables before combining them all together
+catch_data_temp <- bind_rows(catch_data) %>% group_by(Vessel.ADFG.Number)# %>% filter(any(substr(CFEC.Permit.Fishery, 1, 1) == "S")) %>% ungroup()#boats that have participated in salmon fishery in the sample
+catch_data_temp["CFEC.Value..Detail."][is.na(catch_data_temp["CFEC.Value..Detail."])] <- 0#fill the na's with 0
+write.csv(catch_data_temp, "intermediate data/2005_2021_tickets.csv", row.names = TRUE)
+catch_data_temp <- read.csv("intermediate data/2005_2021_tickets.csv")
 
 
 years <- 1978:2022
