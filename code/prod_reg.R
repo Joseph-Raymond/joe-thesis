@@ -523,7 +523,7 @@ catch_data_temp["CFEC.Value..Detail."][is.na(catch_data_temp["CFEC.Value..Detail
       first.species=="S" & (second.species=="S") & any.nonsalmon==FALSE ~ "only salmon, multiple permits",
       first.species=="S" & (is.na(second.species)) ~ "only salmon, single permit",
       .default = "missing"
-    )) %>% mutate(Salmon = ifelse(permit.species=='S', 'S', 'Non-Salmon'))
+    )) %>% mutate(Salmon = ifelse(permit.species=='S', 'S', 'Non-Salmon'), CFEC.Permit.Fishery=first.permit)
     
     Salmon_Fishery_Vessels <- catch_data_temp %>% ungroup() %>% group_by(Vessel.ADFG.Number, CFEC.Permit.Fishery) %>% summarise() %>% group_by(CFEC.Permit.Fishery) %>% summarise(total_boats = n())
     particip_data <- vessel_var %>% filter(specialist_category %in% c("only salmon, multiple permits", "only salmon, single permit", "primary salmon, non-specialist")) %>% group_by(CFEC.Permit.Fishery, specialist_category) %>% summarise(nboats = n() ) %>% ungroup() %>% complete(CFEC.Permit.Fishery, specialist_category, fill=list(nboats=0)) %>% left_join(Salmon_Fishery_Vessels, join_by(CFEC.Permit.Fishery)) %>% mutate(share = nboats/total_boats)
