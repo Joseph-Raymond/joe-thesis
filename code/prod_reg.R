@@ -1,7 +1,7 @@
 #.rs.restartR()
 #rm()
 #loads my packages. If not installed in your environment, the missing ones are installed
-{packs <- c('readr', 'tidyverse', 'lubridate', 'leaflet', 'dplyr', 'gtools', 'ggplot2', 'sf', 'scales', 'ggmap','chron', 'zipcodeR', 'stringr','RColorBrewer','cowplot', 'ggcorrplot', "Hmisc", 'patchwork', 'xlsx', 'xtable', 'corrplot')
+{packs <- c('readr', 'tidyverse', 'lubridate', 'leaflet', 'dplyr', 'gtools', 'ggplot2', 'sf', 'scales', 'ggmap','chron', 'zipcodeR', 'stringr','RColorBrewer','cowplot', 'ggcorrplot', "Hmisc", 'patchwork', 'xlsx', 'xtable', 'corrplot', 'ggh4x')
 new.packages <- packs[!(packs %in% installed.packages()[,"Package"])]
 if(length(new.packages)) install.packages(new.packages)
 lapply(packs, require, character.only = T)}#probably could just use loadpacks but this should work
@@ -592,7 +592,40 @@ catch_data_temp["CFEC.Value..Detail."][is.na(catch_data_temp["CFEC.Value..Detail
       scale_y_continuous(limits = c(0, 3))+
       ggtitle("CV vessel annual revenues by fishing category") +
       xlab("Fishing Category")
+    
+    
+    permit_variance <- trip.revenue.fishery %>% group_by(Batch.Year, CFEC.Permit.Fishery) %>% summarise(year.revenue = sum(year.revenue)) %>%
+      group_by(CFEC.Permit.Fishery) %>% summarise(fishery.var = var(year.revenue), fishery.CV = sd(year.revenue)/mean(year.revenue))
+    
+    particip_data %>% left_join(permit_variance, join_by(CFEC.Permit.Fishery)) %>% 
+      filter(substr(CFEC.Permit.Fishery,1,1)=="S", substr(CFEC.Permit.Fishery,1,4)!="S 77") %>%
+      ggplot(aes(x=specialist_category, y=share, fill=fishery.CV)) +
+      geom_bar(position = 'dodge', stat="identity") +
+      facet_grid(. ~ CFEC.Permit.Fishery) + 
+      scale_fill_continuous(type = "viridis")+
+      scale_x_discrete(name = "Specialist Category", labels = c("(2+)","(1)","(NS)"))
+    #2+ - Only Salmon, Multiple Permits
+    #1 - Only Salmon, Single Permit
+    #NS - Non-Specialist, Primary Salmon
+    particip_data %>% filter(substr(CFEC.Permit.Fishery,1,1)=="S", substr(CFEC.Permit.Fishery,1,4)!="S 77") %>% 
+      left_join(permit_variance, join_by(CFEC.Permit.Fishery)) %>%
+      group_by(gear.class, specialist_category) %>% 
+      summarise(nboats = sum(nboats), total_boats = sum(total_boats), mean.cv = mean(fishery.CV, na.rm = TRUE)) %>% 
+      mutate(share = nboats/total_boats) %>% 
+      ggplot(aes(x=specialist_category, y=share, fill=mean.cv)) +
+      geom_bar(position = 'dodge', stat="identity") +
+      facet_grid(. ~ gear.class) + 
+      scale_fill_continuous(type = "viridis")+
+      scale_x_discrete(name = "Specialist Category", labels = c("(2+)","(1)","(NS)"))
 }
+
+#, fill = fishery.var
+#ggplot(aes(x=CFEC.Permit.Fishery, y=nboats, fill=specialist_category)) +
+ggplot(data = data, aes(x = interaction(Group,Category, sep = "!"), y = Value, fill = Group)) + 
+geom_col(position = 'dodge', show.legend = FALSE) +
+  geom_text(aes(label = paste(Value, "%")), 
+            position = position_dodge(width = 0.9), vjust = -0.25) +
+  scale_x_discrete(guide = guide_axis_nested(delim = "!"), name = "Category")
 
 
 reg.data %>% ungroup() %>%  group_by(Vessel.ADFG.Number) %>% summarise(CFEC.Permit.Fishery = paste(unique(CFEC.Permit.Fishery), collapse = " ")) %>% View()
