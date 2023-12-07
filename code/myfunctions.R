@@ -130,6 +130,10 @@ which.median = function(x) {
     c(which(x == a[1]), which(x == a[2]))
   }
 }
+
+mode <- function(codes){
+  which.max(tabulate(codes))
+}
 #fishing_communities <- read.csv("~/JoeData/PortNames/fishing_communities.csv")
 #fishing_communities <- fishing_communities %>% group_by(COMMUNITY) %>% summarise(lat = first(LATITUDE), long = first(LONGITUDE))
 #test <- get_permit_cities(path = "~/JoeData/vessels/")
