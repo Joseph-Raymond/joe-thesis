@@ -83,8 +83,74 @@ permit.portfolio <- permit_clean %>% group_by(Batch.Year, Vessel.ADFG.Number) %>
 salmon_permits <- permit_clean %>% select(Fishery) %>% filter(substr(Fishery,1,1)=="S") %>% distinct()
 permit.portfolio <- permit.portfolio %>% group_by(Vessel.ADFG.Number) %>% filter(any(salmon_permits$Fishery %in% permit.list), Vessel.ADFG.Number!=0) %>% mutate(Vessel.ADFG.Number=as.integer(Vessel.ADFG.Number))#limits to boats that have had at least one salmon permit in their lifetime
 #rm(permit_clean)
+Mode <- function(x) {
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+#get the number of vessels registered to a owner (file number)
+{
+  #overall
+  permit_clean %>% group_by(File.Number, Vessel.ADFG.Number) %>% summarise(mode.fishery = Mode(Fishery), count = n(), num.fisheries = length(unique(Fishery))) %>% View()
+  #in a year
+  owner.boats <- permit_clean %>% group_by(File.Number, Batch.Year) %>% filter(any(substr(Fishery,1,1)=='S')) %>%#filter out owners with no boats that have a salmon permit
+    filter(!is.na(Vessel.ADFG.Number), Vessel.ADFG.Number!=99999, Vessel.ADFG.Number!=0) %>% 
+    group_by(File.Number, Batch.Year) %>% 
+    mutate(boats.unique = length(unique(Vessel.ADFG.Number))) %>% #number of boats
+    mutate(salmon.boats.unique = length(unique(Vessel.ADFG.Number[substr(Fishery,1,1)=='S']))) %>% # number of salmon boats
+    group_by(Fishery, Batch.Year) %>% 
+    summarise(multi.owners=length(unique(File.Number[boats.unique>1])) , multi.owners.perc=length(unique(File.Number[boats.unique>1]))/length(unique(File.Number)), n.owners=length(unique(File.Number)))
+  
+  P1 <- owner.boats %>% filter(Fishery %like% "S03") %>% 
+    filter(Batch.Year>1990 & Batch.Year<2022) %>% 
+    ggplot(aes(x=Batch.Year, y=multi.owners, color=Fishery)) +
+    geom_line()+
+    labs(title = "Number of owners (unique file numbers) with multiple boats", x=("Year"), y=("Number of owners"))+
+    geom_line(size = 0.7)+
+    scale_color_brewer(palette = "Accent")
+  P2 <- owner.boats %>% filter(Fishery %like% "S03") %>% 
+    filter(Batch.Year>1990 & Batch.Year<2022) %>% 
+    ggplot(aes(x=Batch.Year, y=multi.owners.perc, color=Fishery)) +
+    geom_line()+
+    labs(title = "Percentage of owners (unique file numbers) with multiple boats", x=("Year"), y=("ratio of multi-boat owners"))+
+    geom_line(size = 0.7)+
+    scale_color_brewer(palette = "Accent")
+}
 
 
+{
+  #in a year
+  owner.boat.catch <- catch_data_temp %>% group_by(CFEC.Vessel.Owner.Filing.Number, Batch.Year) %>% filter(any(substr(CFEC.Permit.Fishery,1,1)=='S')) %>%#filter out owners with no boats that have a salmon permit
+    filter(!is.na(Vessel.ADFG.Number), Vessel.ADFG.Number!=99999, Vessel.ADFG.Number!=0) %>% 
+    group_by(CFEC.Vessel.Owner.Filing.Number, Batch.Year) %>% 
+    mutate(boats.unique = length(unique(Vessel.ADFG.Number))) %>% #number of boats
+    mutate(salmon.boats.unique = length(unique(Vessel.ADFG.Number[substr(CFEC.Permit.Fishery,1,1)=='S']))) %>% # number of salmon boats
+    group_by(CFEC.Permit.Fishery, Batch.Year) %>% 
+    summarise(multi.owners=length(unique(CFEC.Vessel.Owner.Filing.Number[boats.unique>1])) , multi.owners.perc=length(unique(CFEC.Vessel.Owner.Filing.Number[boats.unique>1]))/length(unique(CFEC.Vessel.Owner.Filing.Number)), n.owners=length(unique(CFEC.Vessel.Owner.Filing.Number)))
+  
+  P3 <- owner.boat.catch %>% filter(CFEC.Permit.Fishery %like% "S 03") %>% 
+    filter(Batch.Year>1990 & Batch.Year<2022) %>% 
+    ggplot(aes(x=Batch.Year, y=multi.owners, color=CFEC.Permit.Fishery)) +
+    geom_line()+
+    labs(title = "Number of owners (unique file numbers) with multiple boats (CATCH DATA)", x=("Year"), y=("Number of owners"))+
+    geom_line(size = 0.7)+
+    scale_color_brewer(palette = "Accent")
+  P4 <- owner.boat.catch %>% filter(CFEC.Permit.Fishery %like% "S 03") %>% 
+    filter(Batch.Year>1990 & Batch.Year<2022) %>% 
+    ggplot(aes(x=Batch.Year, y=multi.owners.perc, color=CFEC.Permit.Fishery)) +
+    geom_line()+
+    labs(title = "Percentage of owners (unique file numbers) with multiple boats (CATCH DATA)", x=("Year"), y=("Number of owners"))+
+    geom_line(size = 0.7)+
+    scale_color_brewer(palette = "Accent")
+  
+  
+  
+  catch_data_temp %>% filter(CFEC.Permit.Fishery == "S 03T") %>% group_by(Batch.Year, Vessel.ADFG.Number) %>% summarise(permit.serial.numbers = length(unique(CFEC.Permit.Serial.Number)) , cfec.vessel.owners = length(unique(CFEC.Vessel.Owner.Filing.Number))) %>% group_by(Batch.Year) %>% mutate(permit.stacked = (permit.serial.numbers>1)) %>%
+    filter(Batch.Year>1990 & Batch.Year<2022) %>% group_by(Batch.Year) %>% summarise(permit.stack.ratio = sum(permit.stacked)/n()) %>% 
+    ggplot(aes(x=Batch.Year, y=permit.stack.ratio)) +
+    geom_line()+
+    labs(title = "percentage of boats with multiple BB permit serial numbers in a year (CATCH DATA)", x=("Year"), y=("multiple-permit boat ratio"))+
+    scale_color_brewer(palette = "Accent")
+}
 #fishing.portfolio from catch data
 fishing.portfolio <- trip.revenue.fishery %>% group_by(Vessel.ADFG.Number, Batch.Year) %>% summarise(catch.portfolio = list(c(gsub(" ","",CFEC.Permit.Fishery))), catch.revenue = list(c(year.revenue)))#use gsub to remove spaces so that it matches with the permit data
 #join the permits
