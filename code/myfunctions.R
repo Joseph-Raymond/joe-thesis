@@ -42,7 +42,7 @@ get.firstpermit <- function(df){ #gets the first permit for each vessel-year; pi
   df["CFEC.Value..Detail."][is.na(df["CFEC.Value..Detail."])] <- 0#fill the na's with 0
   df_test <- df %>% ungroup() %>%  group_by(Batch.Year, Vessel.ADFG.Number, CFEC.Permit.Fishery) %>% summarise(tot.revenue = sum(CFEC.Value..Detail.), s_specialist = first(s_specialist))%>% ungroup() %>% filter(CFEC.Permit.Fishery!="")
   #reduce on the permit variable based on the value of the summed revenue from the previous step
-  df_test <- df_test %>% ungroup() %>% group_by(Batch.Year, Vessel.ADFG.Number) %>% summarise(first.permit = CFEC.Permit.Fishery[first(which(tot.revenue==max(tot.revenue)))], second.permit = if_else(length(unique(CFEC.Permit.Fishery))==1, NA, CFEC.Permit.Fishery[first(which(tot.revenue==second_max(tot.revenue)))], missing=NULL), s_specialist = first(s_specialist), permit.fished.max = length(unique(CFEC.Permit.Fishery)))
+  df_test <- df_test %>% ungroup() %>% group_by(Batch.Year, Vessel.ADFG.Number) %>% summarise(first.permit = CFEC.Permit.Fishery[first(which(tot.revenue==max(tot.revenue)))], second.permit = ifelse(length(unique(CFEC.Permit.Fishery))==1, NA, CFEC.Permit.Fishery[first(which(tot.revenue==second_max(tot.revenue)))]), s_specialist = first(s_specialist), permit.fished.max = length(unique(CFEC.Permit.Fishery)))
   #df <- df %>% left_join(df_test, join_by(Batch.Year,Vessel.ADFG.Number)) #use if want to output the input data with the join. change the return data if you do this
   return(df_test)
 }
@@ -52,7 +52,7 @@ get.firstpermit.alltime <- function(df){ #gets the first permit for each vessel 
   df["CFEC.Value..Detail."][is.na(df["CFEC.Value..Detail."])] <- 0#fill the na's with 0
   df_test <- df %>% ungroup() %>%   group_by(Vessel.ADFG.Number, CFEC.Permit.Fishery) %>% summarise(tot.revenue = sum(CFEC.Value..Detail.), s_specialist = first(s_specialist))%>% ungroup() %>% filter(CFEC.Permit.Fishery!="")
   #reduce on the permit variable based on the value of the summed revenue from the previous step
-  df_test <- df_test %>% ungroup() %>% group_by(Vessel.ADFG.Number) %>% summarise(first.permit = CFEC.Permit.Fishery[first(which(tot.revenue==max(tot.revenue)))], second.permit = if_else(length(unique(CFEC.Permit.Fishery))==1, NA, CFEC.Permit.Fishery[first(which(tot.revenue==second_max(tot.revenue)))], missing="missing"), s_specialist = first(s_specialist), permit.fished.max = length(unique(CFEC.Permit.Fishery)))
+  df_test <- df_test %>% ungroup() %>% group_by(Vessel.ADFG.Number) %>% summarise(first.permit = CFEC.Permit.Fishery[first(which(tot.revenue==max(tot.revenue)))], second.permit = ifelse(length(unique(CFEC.Permit.Fishery))==1, NA, CFEC.Permit.Fishery[first(which(tot.revenue==second_max(tot.revenue)))]), s_specialist = first(s_specialist), permit.fished.max = length(unique(CFEC.Permit.Fishery)))
   return(df_test)
 }
 # get.primeport <- function(df){
