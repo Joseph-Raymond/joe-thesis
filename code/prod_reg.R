@@ -63,15 +63,17 @@ save(catch_data_temp, file = "intermediate data/catch_data_temp.rdata")
 #start here to save some time 
 rm(catch_data)
 gc()
+setwd("/home/akfin/jraymond/Rprojects/joe-thesis")#project directory
 load("intermediate data/catch_data_temp.rdata")
-
+source("code/myfunctions.R")
 unique(catch_data_temp$Batch.Year)
 catch_data_temp %>% ungroup %>% group_by(Vessel.ADFG.Number) %>% filter(any(substr(CFEC.Permit.Fishery, 1, 1) == "S")) %>% nrow()#this filter would filter to jsut the boats that have fished salmon permit at some point
 
 
 catch_data_temp$Vessel.ADFG.Number[which(catch_data_temp$Vessel.ADFG.Number==62.39)] <- 62339#fix a typo in the data
+catch_data_temp <- catch_data_temp %>% filter(Vessel.ADFG.Number!=0) #8 missing values with vessel numbers == 0
 catch_data_temp$Vessel.ADFG.Number <- as.integer(catch_data_temp$Vessel.ADFG.Number)
-catch_data_temp["CFEC.Value..Detail."][is.na(catch_data_temp["CFEC.Value..Detail."])] <- 0#fill the na's with 0
+catch_data_temp["CFEC.Value..Detail."][is.na(catch_data_temp["CFEC.Value..Detail."])] <- 0#fill the NA's in the value of catch with 0's
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
@@ -80,7 +82,7 @@ catch_data_temp["CFEC.Value..Detail."][is.na(catch_data_temp["CFEC.Value..Detail
                                    breaks=c(0, 20, 30, 40, 50, 60, 1000),
                                    labels=c('0-20', '20-30', '30-40', '40-50', '50-60', '60+'))
 }
-#Specialists
+#Salmon Specialists
 {
   boatlist <- catch_data_temp  %>% mutate(permit_species=substr(CFEC.Permit.Fishery, 1, 1)) %>% group_by(Vessel.ADFG.Number) %>% mutate(s_specialist = if_else(all(permit_species=="S"), 1, 0)) %>% ungroup() %>% select(Vessel.ADFG.Number, s_specialist) %>% distinct(Vessel.ADFG.Number, s_specialist)#boatlist in list of boats that have fished under a salmon permit at some point
   catch_data_temp <- catch_data_temp %>% mutate(permit_species=substr(CFEC.Permit.Fishery, 1, 1)) %>% group_by(Vessel.ADFG.Number) %>% mutate(s_specialist = if_else(all(permit_species=="S"), 1, 0)) %>% ungroup()#s_specialist indicates whether the boat is a salmon specialist across all time
@@ -103,7 +105,9 @@ catch_data_temp["CFEC.Value..Detail."][is.na(catch_data_temp["CFEC.Value..Detail
   pport <- prod %>% mutate(trip.prod=CFEC.Value..Detail./trip.duration) %>% get.primeport()
   pport <- pport %>% group_by(Batch.Year, Vessel.ADFG.Number) %>% mutate(year.rev=sum(port.revenue)) %>% ungroup()
   save(pport, file = "intermediate data/pport.rdata")
-  }
+}
+
+
 #Prime permit
 {
   ppermit_year <- get.firstpermit(catch_data_temp)
