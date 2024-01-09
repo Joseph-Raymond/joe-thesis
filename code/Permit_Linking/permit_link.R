@@ -60,8 +60,13 @@ test <- permit.annual.rev %>% group_by(Batch.Year, Vessel.ADFG.Number, CFEC.Perm
   right_join(permit_clean_join, join_by(Vessel.ADFG.Number, Batch.Year, Fishery), na_matches = "never") #%>% 
 
 test %>% filter(is.na(annual.revenue)) %>% count()
-test %>% filter(is.na(unique.checks)) %>% count()#this number is less than the previous because there are some boat-years that have multiple of the same type of permit (like S03T) but they only use some of their permits (permits here meaning unique permit serial numbers)
-test %>% filter(is.na(annual.revenue) & is.na(unique.checks)) %>% count()
+test %>% filter(is.na(unique.checks)) %>% count()#This number is less than the previous because there are some boat-years that have multiple of the same type of permit (like S03T) but they only use some of their permits (permits here meaning unique permit serial numbers)
+test %>% filter(is.na(annual.revenue) & is.na(unique.checks)) %>% count()#Same as number of missing values for "annual.revenue". Thus, missing values for unique.checks are also missing for annual.revenue but not vice versa. This is because of what is described in the previous comment.
+test <- test %>% mutate(did.fish = if_else(is.na(year.revenue),0,1)) %>% 
+  group_by(Batch.Year, Vessel.ADFG.Number) %>% 
+  mutate(num.dist.fishery = length(unique(Fishery)), num.dist.permit = length(unique(Permit.Number)), num.fished.permits = sum(did.fish), num.fished.fishery = n_distinct(Fishery[did.fish %in% c(1)])) %>% 
+  ungroup()
+table(test$num.fished.fishery, test$did.fish)
 
 rm(test)
 
