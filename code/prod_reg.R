@@ -22,6 +22,7 @@ for (i in datalist[1:length(datalist)]) {#15 starts at 2005
   print(i)
   j <- j+1
 }
+
 #|CFEC.Species.Code=="B"|CFEC.Species.Code=="M"|CFEC.Species.Code=="C"|CFEC.Species.Code=="D"
 for (i in 1:length(catch_data)) {
   catch_data[[i]]$Vessel.ADFG.Number <- as.numeric(catch_data[[i]]$Vessel.ADFG.Number)

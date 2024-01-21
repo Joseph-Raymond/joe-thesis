@@ -100,6 +100,7 @@ get.trip <- function(df){#requires following vairables: (Date.Fishing.Began, Dat
   return(df)
 }
 
+
 split_permit <- function(df){
   df <- df %>% separate(Permit.Fishery, 
              into = c("Permit.Species", "Permit.Gear.Region"), 
