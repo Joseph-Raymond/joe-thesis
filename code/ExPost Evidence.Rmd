@@ -1,0 +1,552 @@
+---
+title: "Ex-post Evidence"
+author: "Joe Raymond"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+## Evidence for ex-post diversity selection bias
+
+One of the problems with using ex-post measures of diversification and revenue uncertainty is that a boat may only look diversified in the data during a "good" or "bad" fishing season. That is, there may be correlation between the likelihood of a boat obtaining below average revenue 
+
+```{r setup, include=FALSE, echo=FALSE}
+knitr::opts_chunk$set(warning = TRUE, message = TRUE)
+
+{packs <- c('readr', 'tidyverse', 'dplyr', 'ggplot2', 'xlsx','data.table', 'fixest', 'lubridate', 'corrplot', 'RColorBrewer', 'knitr', 'cluster','factoextra', 'zoo', 'purrr')
+  new.packages <- packs[!(packs %in% installed.packages()[,"Package"])]
+  if(length(new.packages)) install.packages(new.packages)
+  lapply(packs, require, character.only = T)}#probably could just use loadpacks but this should work
+
+setwd("/home/akfin/jraymond/Rprojects/joe-thesis")
+source("code/myfunctions.R")
+
+setwd("/home/akfin/jraymond/Rprojects/joe-thesis")
+{
+  load("intermediate data/catch_data_temp.rdata")
+  #catch_data_temp %>% ungroup %>% group_by(Vessel.ADFG.Number) %>% filter(any(substr(CFEC.Permit.Fishery, 1, 1) == "S")) %>% nrow()#this filter would filter to jsut the boats that have fished salmon permit at some point
+  catch_data_temp$Vessel.ADFG.Number[which(catch_data_temp$Vessel.ADFG.Number==62.39)] <- 62339#fix a typo in the data
+  catch_data_temp <- catch_data_temp %>% filter(Vessel.ADFG.Number!=0) #8 missing values with vessel numbers == 0
+  catch_data_temp <- catch_data_temp %>% mutate(Vessel.ADFG.Number = as.integer(Vessel.ADFG.Number))
+  catch_data_temp <- catch_data_temp %>% mutate(CFEC.Value..Detail. = if_else(is.na(CFEC.Value..Detail.),0,CFEC.Value..Detail.))
+  #filter out boats that made landings but did not report the permit/fishery in which they made the landing
+  catch_data_temp <- catch_data_temp %>% group_by(Vessel.ADFG.Number, Batch.Year) %>% filter(!any(is.na(Permit.Serial.Number)) ) %>% ungroup()
+}
+
+{
+  trip.data <- get.trip(catch_data_temp)
+  trip.data$trip.duration <- as.numeric(trip.data$trip.length)+1
+  trip.data <- trip.data %>% mutate(trip.duration=ifelse(trip.duration>0,trip.duration, NA))#going out and back the same day should lead to trip duration = 1
+}
+{
+  permit.annual.rev <- trip.data %>% 
+    group_by(Batch.Year, CFEC.Permit.Holder.Filing.Number, Vessel.ADFG.Number, CFEC.Permit.Serial.Number) %>% 
+    summarise(year.revenue=sum(CFEC.Value..Detail., na.rm = TRUE), 
+              num.trips = n_distinct(trip.id), 
+              fishing.days = sum(trip.duration, na.rm = TRUE), 
+              unique.checks = n_distinct(CFEC.Permit.Check), 
+              CFEC.Permit.Check = first(CFEC.Permit.Check), 
+              max.seq.num = max(CFEC.Permit.Sequence), 
+              CFEC.Vessel.Owner.Filing.Number = ifelse(all(is.na(CFEC.Vessel.Owner.Filing.Number)), NA, first(na.omit(CFEC.Vessel.Owner.Filing.Number))), 
+              CFEC.Permit.Fishery = ifelse(all(is.na(CFEC.Permit.Fishery)), NA, first(na.omit(CFEC.Permit.Fishery)))) %>% 
+    mutate(revenue.per.trip = year.revenue/(num.trips))
+  
+  rm(catch_data_temp)
+  gc()
+}  
+period_length <- 10
+```
+
+```{r first permit deviations}
+get.owner.ppermit <- function(df){ #gets the first permit for each owner-year; picking the permit for each vessel that has the most revenue in a given year
+  df_test <- df %>% ungroup() %>%  group_by(Batch.Year, CFEC.Permit.Holder.Filing.Number, CFEC.Permit.Fishery) %>% summarise(tot.revenue = sum(year.revenue, na.rm = TRUE)) %>%
+    filter(CFEC.Permit.Fishery!="") %>% 
+    group_by(Batch.Year, CFEC.Permit.Holder.Filing.Number) %>% 
+    summarise(first.permit = CFEC.Permit.Fishery[first(which(tot.revenue==max(tot.revenue)))], second.permit = ifelse(length(unique(CFEC.Permit.Fishery))==1, NA, CFEC.Permit.Fishery[first(which(tot.revenue==second_max(tot.revenue)))]), permit.fished.max = length(unique(CFEC.Permit.Fishery)))#second_max() is a function from myfunctions.r and it returns the second highest value if it exists (NA otherwise)
+  return(df_test)
+}
+
+#first.permit.df <- get.owner.ppermit(permit.annual.rev)
+
+
+rev.permits.changing <- permit.annual.rev %>% ungroup() %>%
+  group_by(CFEC.Permit.Holder.Filing.Number, Batch.Year, CFEC.Permit.Fishery) %>% 
+  summarise(fishery.annual.rev = sum(year.revenue, na.rm = TRUE)) %>%
+  ungroup() %>% mutate(period = floor((Batch.Year - 1991) / period_length) + 1) %>% 
+  group_by(Batch.Year, CFEC.Permit.Holder.Filing.Number) %>% 
+  mutate(owner.annual.rev = sum(fishery.annual.rev, na.rm = TRUE), annual.rev.share = fishery.annual.rev/sum(fishery.annual.rev, na.rm = TRUE), owner.annual.hhi = sum(annual.rev.share^2, na.rm = TRUE)) %>% 
+  group_by(CFEC.Permit.Holder.Filing.Number, period) %>% 
+  mutate(period.avg.owner.rev = mean(owner.annual.rev, na.rm = TRUE)) %>%
+  group_by(CFEC.Permit.Holder.Filing.Number, Batch.Year) %>% 
+  mutate(owner.rev.dev = owner.annual.rev-period.avg.owner.rev) %>% 
+  group_by(CFEC.Permit.Holder.Filing.Number, period, CFEC.Permit.Fishery) %>% 
+  mutate(period.avg.rev = mean(fishery.annual.rev, na.rm = TRUE), period.rev.share = period.avg.rev/period.avg.owner.rev) %>%
+  group_by(CFEC.Permit.Holder.Filing.Number, Batch.Year, CFEC.Permit.Fishery) %>% 
+  mutate(permit.rev.deviation = (fishery.annual.rev - period.avg.rev)) %>% 
+  filter(!is.na(CFEC.Permit.Holder.Filing.Number)) %>% 
+  group_by(CFEC.Permit.Holder.Filing.Number, Batch.Year) %>%
+  mutate(is.prime.permit = if_else(fishery.annual.rev == max(fishery.annual.rev), 1,0))
+
+#variable to tell if the largest shock in a owner-year was caused by a primary permit shock or not
+rev.permits.changing <- rev.permits.changing %>% 
+  group_by(CFEC.Permit.Holder.Filing.Number, Batch.Year) %>% 
+  mutate(is.biggest.change = if_else(abs(permit.rev.deviation) == max(abs(permit.rev.deviation), na.rm = TRUE), 1,0), 
+         is.shock.pp = (is.biggest.change*is.prime.permit)) %>% 
+  group_by(period, CFEC.Permit.Holder.Filing.Number) %>% 
+  mutate(period.avg.hhi = mean(owner.annual.hhi, na.rm = TRUE)) %>% 
+  group_by(Batch.Year, CFEC.Permit.Holder.Filing.Number) %>% 
+  arrange(Batch.Year) %>% 
+  mutate(hhi.deviation = owner.annual.hhi - period.avg.hhi, rev.deviation = (owner.annual.rev - period.avg.rev)/period.avg.rev)# calculate change in hhi from the period mean
+
+rev.permits.changing <- rev.permits.changing %>%
+  group_by(CFEC.Permit.Holder.Filing.Number, period) %>% 
+  mutate(period.share.sum = sum(annual.rev.share)) %>% #summing up the revenue from the entire period for each permit holder
+  group_by(CFEC.Permit.Holder.Filing.Number, period, CFEC.Permit.Fishery) %>% 
+  mutate(fishery.share.share = sum(annual.rev.share, na.rm = TRUE)/period.share.sum)
+
+
+
+# calculating the "overall" period-level hhi (versus averaging the annual hhi's)
+tenyear.owner.permits <- rev.permits.changing %>% ungroup() %>% 
+  group_by(CFEC.Permit.Holder.Filing.Number, period) %>% 
+  mutate(period.owner.tot.rev = sum(fishery.annual.rev, na.rm =TRUE)) %>% 
+  group_by(CFEC.Permit.Holder.Filing.Number, period, CFEC.Permit.Fishery) %>% 
+  summarise(period.total.share = sum(fishery.annual.rev, na.rm = TRUE)/first(period.owner.tot.rev), fishery.share.share = first(fishery.share.share), period.share.sum = first(period.share.sum), AnnualAverageHHI = first(period.avg.hhi)) %>%
+  group_by(CFEC.Permit.Holder.Filing.Number, period) %>% 
+  mutate(period.owner.tot.hhi = sum(period.total.share^2, na.rm = TRUE), norm.period.hhi = sum(fishery.share.share^2, na.rm = TRUE), period.hhi.diff = period.owner.tot.hhi-norm.period.hhi)
+
+rev.permits.changing <- rev.permits.changing %>% 
+  left_join(tenyear.owner.permits, join_by(CFEC.Permit.Holder.Filing.Number, period, CFEC.Permit.Fishery)) %>% 
+  mutate(norm.hhi.diff = norm.period.hhi-period.avg.hhi, hhi.diff = period.owner.tot.hhi-period.avg.hhi)
+
+
+  
+rev.permits.changing %>% filter(substr(CFEC.Permit.Fishery,1,1)=="S") %>% 
+  ggplot(aes()) +
+  geom_density(aes(x = period.avg.hhi, fill = "Annual Average"), alpha = 0.6) +
+    geom_density(aes(x = norm.period.hhi, fill = "Norm Period Agggregate"), alpha = 0.4) +
+  geom_density(aes(x = period.owner.tot.hhi, fill = "Period Agggregate"), alpha = 0.4) +
+  facet_wrap(~ CFEC.Permit.Fishery, scales = "free") +
+  labs(title = "Density Plots of Annual Average HHI, Period Agggregate HHI, and Norm Period Agggregate HHI",
+       x = "hhi value",
+       y = "Density") +
+  theme_minimal()+
+  scale_fill_manual(name = "", values = c("Annual Average" = "red", "Period Agggregate" = "blue2", "Norm Period Agggregate" = "green4"))
+
+rev.permits.changing %>% filter(substr(CFEC.Permit.Fishery,1,1)=="S", period==1) %>% 
+  ggplot(aes()) +
+  geom_density(aes(x = period.avg.hhi, fill = "Annual Average"), alpha = 0.6) +
+    geom_density(aes(x = norm.period.hhi, fill = "Norm Period Agggregate"), alpha = 0.4) +
+  geom_density(aes(x = period.owner.tot.hhi, fill = "Period Agggregate"), alpha = 0.4) +
+  facet_wrap(~ CFEC.Permit.Fishery, scales = "free") +
+  labs(title = "(1990-2000) Density Plots of Annual Average HHI, Period Agggregate HHI, and Norm Period Agggregate HHI",
+       x = "hhi value",
+       y = "Density") +
+  theme_minimal()+
+  scale_fill_manual(name = "", values = c("Annual Average" = "red", "Period Agggregate" = "blue2", "Norm Period Agggregate" = "green4"))
+
+
+
+rev.permits.changing %>% filter(substr(CFEC.Permit.Fishery,1,1)=="S") %>% ggplot(aes(x = hhi.diff)) +
+  geom_density(fill="steelblue4", alpha = 0.8) +
+  facet_wrap(~ CFEC.Permit.Fishery, scales = "free") +
+  labs(title = "Density Plots of (Period-Aggregate HHI) - (Average Annual HHI) ",
+       x = "hhi.diff",
+       y = "Density") +
+  theme_minimal()
+
+rev.permits.changing %>% filter(substr(CFEC.Permit.Fishery,1,1)=="S") %>% ggplot(aes()) +
+  geom_density(aes(x = period.hhi.diff), fill="steelblue4", alpha = 0.8) +
+  facet_wrap(~ CFEC.Permit.Fishery, scales = "free") +
+  labs(title = "Density Plots of (Period Agggregate HHI) - (Norm Period Agggregate HHI) ",
+       x = "hhi.diff",
+       y = "Density") +
+  theme_minimal()
+
+rev.permits.changing %>% filter(substr(CFEC.Permit.Fishery,1,1)=="S") %>% ggplot(aes()) +
+  geom_density(aes(x = hhi.diff), fill="steelblue4", alpha = 0.8) +
+  facet_wrap(~ CFEC.Permit.Fishery, scales = "free") +
+  labs(title = "Density Plots of (Period Agggregate HHI) - (Norm Period Agggregate HHI) ",
+       x = "hhi.diff",
+       y = "Density") +
+  theme_minimal()
+
+rev.permits.changing %>% filter(substr(CFEC.Permit.Fishery,1,1)=="S") %>% ggplot(aes(x = hhi.diff)) +
+  geom_density() +
+  facet_wrap(~ CFEC.Permit.Fishery, scales = "free") +
+  labs(title = "Density Plots of hhi.diff by CFEC.Permit.Fishery",
+       x = "hhi.diff",
+       y = "Density") +
+  theme_minimal()
+
+rev.permits.changing %>% filter(substr(CFEC.Permit.Fishery,1,1)=="S") %>% ggplot(aes(x = hhi.diff)) +
+  geom_density() +
+  facet_wrap(~ CFEC.Permit.Fishery, scales = "free") +
+  labs(title = "Density Plots of hhi.diff by CFEC.Permit.Fishery",
+       x = "hhi.diff",
+       y = "Density") +
+  theme_minimal()
+
+### Scatter Plots
+
+tenyear.owner.permits %>% filter(substr(CFEC.Permit.Fishery,1,1)=="S", period==1) %>% 
+  ggplot() +
+  geom_point(aes(x = AnnualAverageHHI, y = period.owner.tot.hhi)) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "(1990-2000) Annual Average HHI (x), Period Agggregate HHI (y)",
+       x = "Annual Average HHI",
+       y = "Period Agggregate HHI") +
+  theme_minimal()
+
+tenyear.owner.permits %>% filter(substr(CFEC.Permit.Fishery,1,1)=="S", period==2) %>% 
+  ggplot() +
+  geom_point(aes(x = AnnualAverageHHI, y = period.owner.tot.hhi)) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "(2000-2010) Annual Average HHI (x), Period Agggregate HHI (y)",
+       x = "Annual Average HHI",
+       y = "Period Agggregate HHI") +
+  theme_minimal()
+
+tenyear.owner.permits %>% filter(substr(CFEC.Permit.Fishery,1,1)=="S", period==3) %>% 
+  ggplot() +
+  geom_point(aes(x = AnnualAverageHHI, y = period.owner.tot.hhi)) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "(2010-2020) Annual Average HHI (x), Period Agggregate HHI (y)",
+       x = "Annual Average HHI",
+       y = "Period Agggregate HHI") +
+  theme_minimal()
+
+tenyear.owner.permits %>% filter(substr(CFEC.Permit.Fishery,1,1)=="S") %>% 
+  ggplot() +
+  geom_point(aes(x = AnnualAverageHHI, y = period.owner.tot.hhi)) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "(1990-2020) Annual Average HHI (x), Period Agggregate HHI (y)",
+       x = "Annual Average HHI",
+       y = "Period Agggregate HHI") +
+  theme_minimal()
+
+tenyear.owner.permits %>% filter(substr(CFEC.Permit.Fishery,1,1)=="S") %>% 
+  ggplot() +
+  geom_point(aes(x = norm.period.hhi, y = period.owner.tot.hhi)) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "(1990-2020)",
+       x = "Norm. Period Agggregate HHI",
+       y = "Period Agggregate HHI") +
+  theme_minimal()
+
+tenyear.owner.permits %>% filter(substr(CFEC.Permit.Fishery,1,1)=="S", period==1) %>% 
+  ggplot() +
+  geom_point(aes(x = period.avg.hhi, y = norm.period.hhi)) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "(1990-2020)",
+       x = "Annual Average HHI",
+       y = "Norm. Period Agggregate HHI") +
+  theme_minimal()
+
+
+tenyear.owner.permits %>% mutate(cor.AA.PA = cor)
+cor(tenyear.owner.permits$period.owner.tot.hhi, tenyear.owner.permits$AnnualAverageHHI)
+
+#  summarise(hhi.deviation = first(hhi.deviation), rev.deviation = first(rev.deviation), period = first(period)) %>%
+#  filter(!is.na(CFEC.Permit.Holder.Filing.Number))
+
+rev.permits.changing %>% 
+  group_by(Batch.Year, CFEC.Permit.Holder.Filing.Number) %>% 
+  filter(any(is.shock.pp == 1)) %>% 
+  filter(rev.deviation>0) %>% 
+  group_by(CFEC.Permit.Holder.Filing.Number, period) %>% 
+  summarise(hhi.rev.cor = cor(hhi.deviation, rev.deviation)) %>% 
+  ungroup() %>%
+    ggplot(aes(x = hhi.rev.cor)) +
+      geom_histogram()+
+      labs(y="count", 
+           x = "owner-level correlation between revenue change and hhi change from mean", 
+           title = "Correlation between HHI and Revenue Deviations (primary permit shocks) +")
+
+rev.permits.changing %>% 
+  group_by(Batch.Year, CFEC.Permit.Holder.Filing.Number) %>% 
+  filter(any(is.shock.pp == 1)) %>% 
+  filter(rev.deviation<=0) %>% 
+  group_by(CFEC.Permit.Holder.Filing.Number, period) %>% 
+  summarise(hhi.rev.cor = cor(hhi.deviation, rev.deviation)) %>% 
+  ungroup() %>%
+    ggplot(aes(x = hhi.rev.cor)) +
+      geom_histogram()+
+      labs(y="count", 
+           x = "owner-level correlation between revenue change and hhi change from mean", 
+           title = "Correlation between HHI and Revenue Deviations (primary permit shocks) -")
+
+rev.permits.changing %>% 
+  group_by(Batch.Year, CFEC.Permit.Holder.Filing.Number) %>% 
+  filter(!any(is.shock.pp == 1)) %>% 
+  filter(rev.deviation>0) %>% 
+  group_by(CFEC.Permit.Holder.Filing.Number, period) %>% 
+  summarise(hhi.rev.cor = cor(hhi.deviation, rev.deviation)) %>% 
+  ungroup() %>%
+    ggplot(aes(x = hhi.rev.cor)) +
+      geom_histogram()+
+      labs(y="count", 
+           x = "owner-level correlation between revenue change and hhi change from mean", 
+           title = "Correlation between HHI and Revenue Deviations (shocked non-primary permit) +")
+
+rev.permits.changing %>% 
+  group_by(Batch.Year, CFEC.Permit.Holder.Filing.Number) %>% 
+  filter(!any(is.shock.pp == 1)) %>% 
+  filter(rev.deviation<=0) %>% 
+  group_by(CFEC.Permit.Holder.Filing.Number, period) %>% 
+  summarise(hhi.rev.cor = cor(hhi.deviation, rev.deviation)) %>% 
+  ungroup() %>%
+    ggplot(aes(x = hhi.rev.cor)) +
+      geom_histogram()+
+      labs(y="count", 
+           x = "owner-level correlation between revenue change and hhi change from mean", 
+           title = "Correlation between HHI and Revenue Deviations (shocked non-primary permit) - ")
+
+
+```
+
+## Total Fishery-Wide Revenue CV
+
+```{r HHI Deviations, echo=FALSE}
+  fishery.rev <- permit.annual.rev %>% ungroup() %>% 
+    group_by(Batch.Year, CFEC.Permit.Fishery) %>%
+    summarise(fishery.annual.rev = sum(year.revenue, na.rm = TRUE), active_fishers = n_distinct(CFEC.Permit.Holder.Filing.Number)) %>% 
+    filter(active_fishers!=1) %>% 
+    mutate(period = floor((Batch.Year - 1991) / period_length) + 1)
+  
+  fishery.cv <- fishery.rev %>% 
+    group_by(period, CFEC.Permit.Fishery) %>%
+    summarise(fishery.cv = sd(fishery.annual.rev, na.rm = TRUE)/mean(fishery.annual.rev, na.rm = TRUE), 
+           fishery.mean = mean(fishery.annual.rev, na.rm = TRUE), 
+           mean.active.fishers = mean(active_fishers, na.rm = TRUE),
+           num.years = n()) %>% 
+    filter(period!=4)
+
+rev.hhi.changing <- permit.annual.rev %>% ungroup() %>%
+  group_by(Batch.Year, CFEC.Permit.Fishery, CFEC.Permit.Holder.Filing.Number) %>% 
+  summarise(fishery.annual.rev = sum(year.revenue, na.rm = TRUE), period = floor((Batch.Year - 1991) / period_length) + 1) %>% 
+  group_by(Batch.Year, CFEC.Permit.Holder.Filing.Number) %>% 
+  mutate(owner.annual.rev = sum(fishery.annual.rev, na.rm = TRUE), rev.share = fishery.annual.rev/sum(fishery.annual.rev, na.rm = TRUE), owner.annual.hhi = sum(rev.share^2, na.rm = TRUE)) %>% 
+  group_by(period, CFEC.Permit.Holder.Filing.Number) %>% 
+  mutate(period.avg.rev = mean(owner.annual.rev, na.rm = TRUE), period.avg.hhi = mean(owner.annual.hhi, na.rm = TRUE)) %>% 
+  group_by(Batch.Year, CFEC.Permit.Holder.Filing.Number) %>% 
+  arrange(Batch.Year) %>% 
+  mutate(hhi.deviation = owner.annual.hhi - period.avg.hhi, rev.deviation = (owner.annual.rev - period.avg.rev)/period.avg.rev) %>% # calculate change in hhi from the period mean
+  summarise(hhi.deviation = first(hhi.deviation), rev.deviation = first(rev.deviation), period = first(period)) %>%
+  filter(!is.na(CFEC.Permit.Holder.Filing.Number))
+```
+
+```{r HHI Deviation Plots}
+rev.hhi.changing %>%
+  group_by(CFEC.Permit.Holder.Filing.Number, period) %>% 
+  summarise(hhi.rev.cor = cor(hhi.deviation, rev.deviation)) %>% 
+  ungroup() %>%
+    ggplot(aes(x = hhi.rev.cor)) +
+      geom_histogram()+
+      labs(y="count", 
+           x = "owner-level correlation between revenue change and hhi change from mean", 
+           title = "Correlation between HHI and Revenue Deviations")
+
+rev.hhi.changing %>%
+  group_by(CFEC.Permit.Holder.Filing.Number, period) %>% 
+  filter(rev.deviation<=0) %>% 
+  summarise(hhi.rev.cor = cor(hhi.deviation, rev.deviation)) %>% 
+  ungroup() %>%
+    ggplot(aes(x = hhi.rev.cor)) +
+      geom_histogram()+
+      labs(y="count", 
+           x = "owner-level correlation between revenue change and hhi change from mean", 
+           title = "Correlation between HHI and Negative Revenue Deviations")
+
+rev.hhi.changing %>%
+  group_by(CFEC.Permit.Holder.Filing.Number, period) %>% 
+  filter(rev.deviation>0) %>% 
+  summarise(hhi.rev.cor = cor(hhi.deviation, rev.deviation)) %>% 
+  ungroup() %>%
+    ggplot(aes(x = hhi.rev.cor)) +
+      geom_histogram()+
+      labs(y="count", 
+           x = "owner-level correlation between revenue change and hhi change from mean", 
+           title = "Correlation between HHI and Positive Revenue Deviations")
+  
+
+#cor(rev.hhi.changing$hhi.deviation, rev.hhi.changing$rev.deviation)
+  
+```
+Goal of the next section is find the when fishing permit owners add a new fishery or leave a fishery and how that relates to revenue changes.
+```{r Fishery_changes, echo=FALSE}
+fishing.changes <- permit.annual.rev %>%
+  group_by(Batch.Year, CFEC.Permit.Holder.Filing.Number, CFEC.Permit.Fishery) %>%
+  summarise(owner.annual.rev = sum(year.revenue, na.rm = TRUE)) %>%
+  group_by(CFEC.Permit.Holder.Filing.Number, Batch.Year) %>%
+  summarise(permit.list = list(unique(CFEC.Permit.Fishery)))
+
+fishing.changes <- fishing.changes %>%
+  group_by(CFEC.Permit.Holder.Filing.Number) %>%
+  arrange(Batch.Year) %>%
+  mutate(
+    future.permit.list = lead(permit.list),
+    past.permit.list = lag(permit.list),
+    future.check = map2(permit.list, future.permit.list, ~ .x %in% .y),
+    past.check = map2(permit.list, past.permit.list, ~ .x %in% .y)
+  )
+fishing.changes <- fishing.changes %>%
+  group_by(CFEC.Permit.Holder.Filing.Number) %>% 
+  arrange(Batch.Year) %>% 
+  mutate(lag.future.check = lag(future.check)) %>% 
+  group_by(CFEC.Permit.Holder.Filing.Number, Batch.Year) %>% 
+  mutate(num.new.permit = sum(!unlist(past.check), na.rm = TRUE), num.dropped.permit = sum(unlist(lapply(lag.future.check, function(x) if(is.null(x)) x else !x)), na.rm = TRUE)) %>% 
+  group_by(CFEC.Permit.Holder.Filing.Number) %>% 
+  mutate(start.flag = (Batch.Year==min(Batch.Year)))
+
+joined.data <- fishing.changes %>% ungroup() %>% 
+  left_join(rev.hhi.changing, join_by(Batch.Year, CFEC.Permit.Holder.Filing.Number)) %>% 
+  left_join(test, join_by(Batch.Year, CFEC.Permit.Holder.Filing.Number))
+
+joined.data %>% filter(!start.flag) %>% filter(hhi.deviation!=0) %>% 
+  group_by(CFEC.Permit.Holder.Filing.Number) %>% 
+  summarise(hhi.rev.cor = cor(rev.deviation, num.dropped.permit)) %>% 
+  ungroup() %>%
+    ggplot(aes(x = hhi.rev.cor)) +
+      geom_histogram()+
+      labs(y="count", 
+           x = "owner-level correlation between revenue deviation and dropped permits", 
+           title = "Correlation between Dropped Permits and Revenue Deviations")
+
+joined.data %>% filter(!start.flag) %>% filter(hhi.deviation!=0) %>% 
+  filter(rev.deviation>0) %>% 
+  group_by(CFEC.Permit.Holder.Filing.Number) %>% 
+  summarise(hhi.rev.cor = cor(rev.deviation, num.dropped.permit)) %>% 
+  ungroup() %>%
+    ggplot(aes(x = hhi.rev.cor)) +
+      geom_histogram()+
+      labs(y="count", 
+           x = "owner-level correlation between revenue deviation and dropped permits", 
+           title = "Correlation between Dropped Permits and Revenue (Positive) Deviations")
+
+joined.data %>% filter(!start.flag) %>% filter(hhi.deviation!=0) %>% 
+  filter(rev.deviation<0) %>% 
+  group_by(CFEC.Permit.Holder.Filing.Number) %>% 
+  summarise(hhi.rev.cor = cor(rev.deviation, num.dropped.permit)) %>% 
+  ungroup() %>%
+    ggplot(aes(x = hhi.rev.cor)) +
+      geom_histogram()+
+      labs(y="count", 
+           x = "owner-level correlation between revenue deviation and dropped permits", 
+           title = "Correlation between Dropped Permits and Revenue (Negative) Deviations")
+
+
+##############
+
+
+joined.data %>% filter(!start.flag) %>% filter(hhi.deviation!=0) %>% 
+  group_by(CFEC.Permit.Holder.Filing.Number) %>% 
+  summarise(hhi.rev.cor = cor(rev.deviation, num.new.permit)) %>% 
+  ungroup() %>%
+    ggplot(aes(x = hhi.rev.cor)) +
+      geom_histogram()+
+      labs(y="count", 
+           x = "owner-level correlation between revenue deviation and new permits", 
+           title = "Correlation between New Permits and Revenue Deviations")
+
+joined.data %>% filter(!start.flag) %>% filter(hhi.deviation!=0) %>% 
+  filter(rev.deviation>0) %>% 
+  group_by(CFEC.Permit.Holder.Filing.Number) %>% 
+  summarise(hhi.rev.cor = cor(rev.deviation, num.new.permit)) %>% 
+  ungroup() %>%
+    ggplot(aes(x = hhi.rev.cor)) +
+      geom_histogram()+
+      labs(y="count", 
+           x = "owner-level correlation between revenue deviation and new permits", 
+           title = "Correlation between NEW Permits and Revenue (Positive) Deviations")
+
+joined.data %>% filter(!start.flag) %>% filter(hhi.deviation!=0) %>% 
+  filter(rev.deviation<0) %>% 
+  group_by(CFEC.Permit.Holder.Filing.Number) %>% 
+  summarise(hhi.rev.cor = cor(rev.deviation, num.new.permit)) %>% 
+  ungroup() %>%
+    ggplot(aes(x = hhi.rev.cor)) +
+      geom_histogram()+
+      labs(y="count", 
+           x = "owner-level correlation between revenue deviation and new permits", 
+           title = "Correlation between New Permits and Revenue (Negative) Deviations")
+
+```
+
+```{r rolling average hhi}
+test <- permit.annual.rev %>%
+  group_by(Batch.Year, CFEC.Permit.Holder.Filing.Number) %>% 
+  summarise(owner.annual.rev = sum(year.revenue, na.rm = TRUE)) %>% 
+  group_by(CFEC.Permit.Holder.Filing.Number) %>% 
+  arrange(Batch.Year) %>%
+  mutate(income_avg = zoo::rollapply(owner.annual.rev, width = 6, FUN = mean, fill = NA)) %>% 
+  group_by(CFEC.Permit.Holder.Filing.Number) %>%
+  fill(income_avg, .direction = "up") %>% 
+  fill(income_avg, .direction = "down")
+
+test <- permit.annual.rev %>%
+  group_by(Batch.Year, CFEC.Permit.Holder.Filing.Number, CFEC.Permit.Fishery) %>% 
+  summarise(owner.annual.rev = sum(year.revenue, na.rm = TRUE)) %>% 
+  group_by(CFEC.Permit.Holder.Filing.Number) %>% 
+  arrange(Batch.Year) %>%
+  mutate(income_avg = zoo::rollapply(owner.annual.rev, width = 6, FUN = mean, fill = NA))
+
+```
+
+
+```{r Fishery-wide CV plot, fig.width=14}
+
+fishery.cv %>% ungroup() %>% 
+  filter(period==1) %>%
+    ggplot(aes(x=CFEC.Permit.Fishery, y=fishery.cv)) +
+      geom_col()+
+      labs(y="Fishery-Wide Revenue CV", 
+           x = "Fishery (defined by the permit)", 
+           title = "Fishery-Level CV Across Time, Period 1 (1991-2000)")+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+fishery.cv %>% ungroup() %>% 
+  filter(period==1) %>%
+    ggplot(aes(x=CFEC.Permit.Fishery, y=fishery.cv)) +
+      geom_col()+
+      labs(y="Fishery-Wide Revenue CV", 
+           x = "Fishery (defined by the permit)", 
+           title = "Fishery-Level CV Across Time, Period 2 (2001-2010)")+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+fishery.cv %>% ungroup() %>% 
+  filter(period==1) %>%
+    ggplot(aes(x=CFEC.Permit.Fishery, y=fishery.cv)) +
+      geom_col()+
+      labs(y="Fishery-Wide Revenue CV", 
+           x = "Fishery (defined by the permit)", 
+           title = "Fishery-Level CV Across Time, Period 3 (2011-2020)")+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+fishery.cv %>% ungroup() %>% filter(CFEC.Permit.Fishery!="S 04X" & CFEC.Permit.Fishery!="S 04F") %>% 
+  ggplot(aes(x=CFEC.Permit.Fishery, y=fishery.cv, fill=factor(period))) +
+  geom_col(position = "dodge") +
+  labs(y="Fishery-Wide Revenue CV", 
+       x = "Fishery (defined by the permit)", 
+       title = "Fishery-Level CV Across Time",
+       fill = "Period") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_discrete(labels = c("1991-2000", "2001-2010", "2011-2020"))
+```
+Want to know if it is a prime or secondary permit that is being hurt during a revenue shock
+
+```{r summary plots}
+rev.permits.changing %>% 
+  group_by(Batch.Year, CFEC.Permit.Holder.Filing.Number) %>% 
+  filter(!any(is.shock.pp == 1)) %>% 
+  filter(rev.deviation<=0) %>% 
+  group_by(CFEC.Permit.Holder.Filing.Number, period) %>% 
+  summarise(hhi.rev.cor = cor(hhi.deviation, rev.deviation)) %>% 
+  ungroup() %>%
+    ggplot(aes(x = hhi.rev.cor)) +
+      geom_histogram()+
+      labs(y="count", 
+           x = "owner-level correlation between revenue change and hhi change from mean", 
+           title = "Correlation between HHI and Revenue Deviations (shocked non-primary permit) - ")
+```
+
+

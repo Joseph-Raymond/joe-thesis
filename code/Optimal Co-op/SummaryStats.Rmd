@@ -1,0 +1,536 @@
+---
+title: "Optimal Co-op"
+author: "Joe Raymond"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+## What makes a good co-op pair?
+
+To think about what types of boats would want to participate in a co-op we can simplify this problem by thinking of just two permit owners.
+
+There are two dimensions to think about: 1. variance of revenue 2. average/expected revenue of each owner.
+
+I start by focusing on the variance of revenue. If the only purpose of the co-op is to lower the variance of revenues, then the variance of the co-op's revenue will depend on the variance of the individual members and the covariance between the members. Thus, a "better" co-op will have members with lower own-revenue variances and/or lower covariances. Thus, all else equal, we would expect good candidates for a co-op to come from fisheries whose total revenue is not related. This suggests pooling revenue across fishery permits. This could be advantageous if factors such as space and biological connectedness are such that two fisheries are relatively insulated from one another. To examine this, we can look at how "risky" overall are some fisheries and at some of the correlations between fishery-wide revenues.
+
+For example, historically, revenue from fishery "S 04M" (set gillnet permits in the Alaska Penninsula region) are not correlated with several other salmon fisheries making this fishery a potentially successful candidate for cross-fishery co-op options (See correlation plot below). However, S04M has historically had low revenue CV values over 10 year periods, thus adding owners from this fishery to a co-op would likely help the co-op substantially, but might end up resulting in an increase in CV for the owners in S04M given that they existing stability of their fishery. That is, owner's in S04M may have less to gain from a co-op
+
+```{r setup, include=FALSE, echo=FALSE}
+knitr::opts_chunk$set(warning = TRUE, message = TRUE)
+
+{packs <- c('readr', 'tidyverse', 'dplyr', 'ggplot2', 'xlsx','data.table', 'fixest', 'lubridate', 'corrplot', 'RColorBrewer', 'knitr', 'cluster','factoextra')
+  new.packages <- packs[!(packs %in% installed.packages()[,"Package"])]
+  if(length(new.packages)) install.packages(new.packages)
+  lapply(packs, require, character.only = T)}#probably could just use loadpacks but this should work
+
+setwd("/home/akfin/jraymond/Rprojects/joe-thesis")
+source("code/myfunctions.R")
+
+setwd("/home/akfin/jraymond/Rprojects/joe-thesis")
+{
+  load("intermediate data/catch_data_temp.rdata")
+  #catch_data_temp %>% ungroup %>% group_by(Vessel.ADFG.Number) %>% filter(any(substr(CFEC.Permit.Fishery, 1, 1) == "S")) %>% nrow()#this filter would filter to jsut the boats that have fished salmon permit at some point
+  catch_data_temp$Vessel.ADFG.Number[which(catch_data_temp$Vessel.ADFG.Number==62.39)] <- 62339#fix a typo in the data
+  catch_data_temp <- catch_data_temp %>% filter(Vessel.ADFG.Number!=0) #8 missing values with vessel numbers == 0
+  catch_data_temp <- catch_data_temp %>% mutate(Vessel.ADFG.Number = as.integer(Vessel.ADFG.Number))
+  catch_data_temp <- catch_data_temp %>% mutate(CFEC.Value..Detail. = if_else(is.na(CFEC.Value..Detail.),0,CFEC.Value..Detail.))
+  #filter out boats that made landings but did not report the permit/fishery in which they made the landing
+  catch_data_temp <- catch_data_temp %>% group_by(Vessel.ADFG.Number, Batch.Year) %>% filter(!any(is.na(Permit.Serial.Number)) ) %>% ungroup()
+}
+
+{
+  trip.data <- get.trip(catch_data_temp)
+  trip.data$trip.duration <- as.numeric(trip.data$trip.length)+1
+  trip.data <- trip.data %>% mutate(trip.duration=ifelse(trip.duration>0,trip.duration, NA))#going out and back the same day should lead to trip duration = 1
+}
+{
+  permit.annual.rev <- trip.data %>% 
+    group_by(Batch.Year, CFEC.Permit.Holder.Filing.Number, Vessel.ADFG.Number, CFEC.Permit.Serial.Number) %>% 
+    summarise(year.revenue=sum(CFEC.Value..Detail., na.rm = TRUE), 
+              num.trips = n_distinct(trip.id), 
+              fishing.days = sum(trip.duration, na.rm = TRUE), 
+              unique.checks = n_distinct(CFEC.Permit.Check), 
+              CFEC.Permit.Check = first(CFEC.Permit.Check), 
+              max.seq.num = max(CFEC.Permit.Sequence), 
+              CFEC.Vessel.Owner.Filing.Number = ifelse(all(is.na(CFEC.Vessel.Owner.Filing.Number)), NA, first(na.omit(CFEC.Vessel.Owner.Filing.Number))), 
+              CFEC.Permit.Fishery = ifelse(all(is.na(CFEC.Permit.Fishery)), NA, first(na.omit(CFEC.Permit.Fishery)))) %>% 
+    mutate(revenue.per.trip = year.revenue/(num.trips))
+  
+  rm(catch_data_temp)
+  gc()
+}  
+period_length <- 10
+```
+
+## Total Fishery-Wide Revenue CV
+
+```{r FisheryCV, echo=FALSE}
+  fishery.rev <- permit.annual.rev %>% ungroup() %>% 
+    filter(substr(CFEC.Permit.Fishery,1,1)=="S") %>%
+    filter(substr(CFEC.Permit.Fishery,1,3)!="S 7") %>%
+    group_by(Batch.Year, CFEC.Permit.Fishery) %>%
+    summarise(fishery.annual.rev = sum(year.revenue, na.rm = TRUE), active_fishers = n_distinct(CFEC.Permit.Holder.Filing.Number)) %>% 
+    filter(active_fishers!=1) %>% 
+    mutate(period = floor((Batch.Year - 1991) / period_length) + 1)
+  
+  fishery.cv <- fishery.rev %>% 
+    group_by(period, CFEC.Permit.Fishery) %>%
+    summarise(fishery.cv = sd(fishery.annual.rev, na.rm = TRUE)/mean(fishery.annual.rev, na.rm = TRUE), 
+           fishery.mean = mean(fishery.annual.rev, na.rm = TRUE), 
+           mean.active.fishers = mean(active_fishers, na.rm = TRUE),
+           num.years = n()) %>% 
+    filter(period!=4)
+
+```
+
+```{r Fishery-wide CV plot, fig.width=14}
+
+fishery.cv %>% ungroup() %>% 
+  filter(period==1) %>%
+    ggplot(aes(x=CFEC.Permit.Fishery, y=fishery.cv)) +
+      geom_col()+
+      labs(y="Fishery-Wide Revenue CV", 
+           x = "Fishery (defined by the permit)", 
+           title = "Fishery-Level CV Across Time, Period 1 (1991-2000)")+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+fishery.cv %>% ungroup() %>% 
+  filter(period==1) %>%
+    ggplot(aes(x=CFEC.Permit.Fishery, y=fishery.cv)) +
+      geom_col()+
+      labs(y="Fishery-Wide Revenue CV", 
+           x = "Fishery (defined by the permit)", 
+           title = "Fishery-Level CV Across Time, Period 2 (2001-2010)")+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+fishery.cv %>% ungroup() %>% 
+  filter(period==1) %>%
+    ggplot(aes(x=CFEC.Permit.Fishery, y=fishery.cv)) +
+      geom_col()+
+      labs(y="Fishery-Wide Revenue CV", 
+           x = "Fishery (defined by the permit)", 
+           title = "Fishery-Level CV Across Time, Period 3 (2011-2020)")+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+fishery.cv %>% ungroup() %>% filter(CFEC.Permit.Fishery!="S 04X" & CFEC.Permit.Fishery!="S 04F") %>% 
+  ggplot(aes(x=CFEC.Permit.Fishery, y=fishery.cv, fill=factor(period))) +
+  geom_col(position = "dodge") +
+  labs(y="Fishery-Wide Revenue CV", 
+       x = "Fishery (defined by the permit)", 
+       title = "Fishery-Level CV Across Time",
+       fill = "Period") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_discrete(labels = c("1991-2000", "2001-2010", "2011-2020"))
+```
+
+## Correlation (Spearman) of Annual Total Fishery Revenue
+
+```{r Fishery Rev Plot, fig.height=6}
+  df.corr <- fishery.rev %>% select(Batch.Year, CFEC.Permit.Fishery ,fishery.annual.rev) %>% 
+    spread(key = CFEC.Permit.Fishery, value = fishery.annual.rev) %>% ungroup() %>% 
+    select(-Batch.Year) %>% 
+    select_if(~ !any(is.na(.)))
+  
+  salmon_cor <- cor(df.corr,
+                     method = c("spearman"))
+  
+  corrplot(salmon_cor, tl.col = "black",
+                 type ="upper", col = brewer.pal(n = 10, name = "RdYlBu"))
+```
+
+```{r Data plotting, echo=FALSE}
+{#fishery specifc revenue CV    
+    df <- permit.annual.rev %>%
+      group_by(Batch.Year, CFEC.Permit.Holder.Filing.Number, CFEC.Permit.Fishery) %>%
+      summarise(year.revenue = sum(year.revenue, na.rm = TRUE)) %>%
+      mutate(period = floor((Batch.Year - 1991) / period_length) + 1) %>%
+      filter(substr(CFEC.Permit.Fishery,1,1)=="S") %>% 
+      group_by(period, CFEC.Permit.Holder.Filing.Number) %>% 
+      mutate(active_years = n_distinct(Batch.Year)) %>% 
+      group_by(period, CFEC.Permit.Fishery) %>% 
+      mutate(active_fishers = n_distinct(CFEC.Permit.Holder.Filing.Number)) %>% 
+      filter(active_fishers>20) %>% 
+      filter(substr(CFEC.Permit.Fishery,1,3)!="S 7") %>%
+      group_by(period, CFEC.Permit.Holder.Filing.Number, CFEC.Permit.Fishery) %>%
+      summarise(owner.cv = sd(year.revenue, na.rm = TRUE)/mean(year.revenue, na.rm = TRUE), owner.mean = mean(year.revenue, na.rm = TRUE), nobs = n()) %>% 
+      filter(nobs!=1)
+
+    # Calculate the median for each group
+    medians <- df %>% 
+      group_by(CFEC.Permit.Fishery, period) %>% 
+      summarise(median = median(owner.cv, na.rm = TRUE))
+}#this data will get plotted in the next bracket
+{#total revenue CV
+  df_tot <- permit.annual.rev %>%
+    group_by(Batch.Year, CFEC.Permit.Holder.Filing.Number, CFEC.Permit.Fishery) %>%
+    summarise(year.revenue = sum(year.revenue, na.rm = TRUE)) %>%
+    mutate(period = floor((Batch.Year - 1991) / period_length) + 1) %>%
+    group_by(Batch.Year, CFEC.Permit.Holder.Filing.Number) %>% 
+    mutate(owner.tot.rev = sum(year.revenue, na.rm = TRUE)) %>% #owner total annual revenue
+    group_by(period, CFEC.Permit.Holder.Filing.Number) %>% 
+    mutate(active_years = n_distinct(Batch.Year)) %>% 
+    group_by(period, CFEC.Permit.Fishery) %>% 
+    mutate(active_fishers = n_distinct(CFEC.Permit.Holder.Filing.Number)) %>% 
+    filter(active_fishers>20) %>% 
+    filter(substr(CFEC.Permit.Fishery,1,1)=="S") %>% 
+    filter(substr(CFEC.Permit.Fishery,1,3)!="S 7") %>%
+    group_by(period, CFEC.Permit.Holder.Filing.Number, CFEC.Permit.Fishery) %>%
+    summarise(owner.cv = sd(owner.tot.rev, na.rm = TRUE)/mean(owner.tot.rev, na.rm = TRUE), owner.mean = mean(owner.tot.rev, na.rm = TRUE), nobs = n()) %>% 
+    filter(nobs!=1)
+  
+  # Calculate the median for each group
+  medians_tot <- df_tot %>% 
+    group_by(CFEC.Permit.Fishery, period) %>% 
+    summarise(median = median(owner.cv, na.rm = TRUE))
+  
+  # Plot
+  plotlist_tot <- list()
+  for (i in 1:3) {
+    plotlist_tot[[i]] <- df_tot %>% 
+      filter(period==i) %>% 
+      ggplot(aes(x = owner.cv)) +
+      geom_density(data = df %>% filter(period==i), aes(fill = "Density - Fishery Specific Revenue"), alpha = 0.35) +
+      geom_density(aes(fill = "Density - Total Owner Revenue"), alpha = 0.35) +
+      facet_wrap(~ CFEC.Permit.Fishery) +
+      labs(x = "Owner CV", y = "Density", title = paste0("Density plot of Owner CV: Period==",i)) +
+      xlim(c(0, 2.3)) +
+      geom_vline(data = medians %>% filter(period==i), aes(xintercept = median, color = "Median - Fishery Specific Revenue"), linetype = "dashed") +
+      geom_vline(data = medians_tot %>% filter(period==i), aes(xintercept = median, color = "Median - Total Owner Revenue"), linetype = "dashed") +
+      scale_fill_manual(name = "", values = c("Density - Fishery Specific Revenue" = "red", "Density - Total Owner Revenue" = "blue2")) +
+      scale_color_manual(name = "", values = c("Median - Fishery Specific Revenue" = "red", "Median - Total Owner Revenue" = "blue2"))
+  }#plot total revenue and fishery specifc revnue CV
+}#total revenue CV
+```
+
+## Within Fishery Co-ops
+
+Another potential option to decrease revenue CV is a fishery wide co-op. In this case, if we hold mean revenue constant between two boats, then if two boats also have similar revenue variance and form a co-op, the CV of a co-op will be lower than the individual CV's. This involves no mean-variance tradeoff and makes the co-op desirable for both parties. The types of fisheries that would be good candidates for these types of scenarios are those with relatively homogenous CV's. We can "hold mean revenue constant" temporarily by assuming that the share of revenue each boat will get is based off there historical mean revenue. In this case, if the distribution of CV's are concentrated and do not vary much then the owners with relatively low CV's who join the co-op will be less likely to see their CV increase. If a fishery has a spread out distribution of CV's then, the lower CV owners may experience a CV increase from joining the co-op and will not want to join. The lower-CV-owners not wanting to join will further increase the co-op's overall CV and make the co-op less beneficial for those in the group.
+
+An example of the fishery's with relatively concentrated CV's are the "03" (drift gillnet) salmon fisheries. They tend to exhibit more concentrated CV's distributions compared to fisheries that have a wider range of revenue CV's. Thus, I would look to the "03" salmon fisheries as having potential benefit from fishery-wide co-ops.
+
+For within fishery co-ops, another key factor describing their potential success is the correlation among individual owners revenues in any given year. For example, if owners' revenues are perfectly correlated then a co-op will provide no risk reducing benefit. Another way to say this is that, if revenues go up and down at the same time for all owners in a fishery (large owner-to-owner co-variances), then a co-op's CV will be larger than the similar fishery that has a smaller covariance between owners. Ideally, this would be described with a co-integration measure. The goal is to measure how owner-level revenue changes are correlated with one another. Integration analysis is not presented here.
+
+### Owner-Level CV across time
+
+This plots the CV of individual owners over a ten year period for the salmon fisheries. An owner must be associated with salmon permit revenue for at least two years to counted in each periods calculation.
+
+```{r Period1 (1991-2000), fig.width=15}
+  print(plotlist_tot[[1]])
+```
+
+```{r Period2 (2001-2010), fig.width=15}
+  print(plotlist_tot[[2]])
+```
+
+```{r Period3 (2011-2020), fig.width=15}
+  print(plotlist_tot[[3]])
+```
+
+### Within-Fishery Annual Revenue Heterogeneity
+
+Here I calculate the CV of revenue across different owners within a fishery. I calculate a CV per fishery per year. The variation in revenue is coming from the heterogeneity across owner revenue in the fishery.
+
+```{r OwnerHeterogeneity Data Manage, echo=FALSE}
+
+dfoh <- permit.annual.rev %>%
+      group_by(Batch.Year, CFEC.Permit.Holder.Filing.Number, CFEC.Permit.Fishery) %>%
+      summarise(year.revenue = sum(year.revenue, na.rm = TRUE)) %>%
+      mutate(period = floor((Batch.Year - 1991) / period_length) + 1) %>%
+      filter(substr(CFEC.Permit.Fishery,1,1)=="S") %>% 
+      group_by(period, CFEC.Permit.Holder.Filing.Number) %>% 
+      mutate(active_years = n_distinct(Batch.Year)) %>% 
+      group_by(period, CFEC.Permit.Fishery) %>% 
+      mutate(active_fishers = n_distinct(CFEC.Permit.Holder.Filing.Number)) %>% 
+      filter(active_fishers>20) %>% 
+      filter(substr(CFEC.Permit.Fishery,1,3)!="S 7") %>%
+      group_by(Batch.Year, CFEC.Permit.Holder.Filing.Number) %>% 
+      mutate(year.revenue.change = year.revenue - lag(year.revenue)) %>% # calculate change in owner.tot.rev
+    group_by(Batch.Year, CFEC.Permit.Fishery) %>%
+    summarise(owner.cv = sd(year.revenue, na.rm = TRUE)/mean(year.revenue, na.rm = TRUE), owner.mean = mean(year.revenue, na.rm = TRUE), nobs = n()) %>% 
+      filter(nobs!=1)
+
+dfoh_tot <- permit.annual.rev %>%
+    group_by(Batch.Year, CFEC.Permit.Holder.Filing.Number, CFEC.Permit.Fishery) %>%
+    summarise(year.revenue = sum(year.revenue, na.rm = TRUE)) %>% 
+    mutate(period = floor((Batch.Year - 1991) / period_length) + 1) %>%
+    filter(substr(CFEC.Permit.Fishery,1,1)=="S") %>% 
+    filter(substr(CFEC.Permit.Fishery,1,3)!="S 7") %>%
+    group_by(Batch.Year, CFEC.Permit.Holder.Filing.Number) %>% 
+    mutate(owner.tot.rev = sum(year.revenue, na.rm = TRUE)) %>% #owner total annual revenue
+    mutate(owner.tot.rev.change = owner.tot.rev - lag(owner.tot.rev)) %>% # calculate change in owner.tot.rev
+    group_by(period, CFEC.Permit.Holder.Filing.Number) %>% 
+    mutate(active_years = n_distinct(Batch.Year)) %>% 
+    group_by(period, CFEC.Permit.Fishery) %>% 
+    mutate(active_fishers = n_distinct(CFEC.Permit.Holder.Filing.Number)) %>% 
+    filter(active_fishers>20) %>% 
+    group_by(Batch.Year, CFEC.Permit.Fishery) %>%
+    summarise(owner.cv = sd(owner.tot.rev, na.rm = TRUE)/mean(owner.tot.rev, na.rm = TRUE), owner.mean = mean(owner.tot.rev, na.rm = TRUE), nobs = n()) %>% 
+    filter(nobs!=1)
+```
+
+## Within Fishery Revenue Heterogeneity
+
+I also provide the cross-owner, within-fishery revenue CV of each fishery in a given year. This is describing how uniform are the owner revenues across a fishery. This may be relevant information for a few reasons. If a fishery exhibits substantial revenue heterogeneity, it would indicate that there may be different types of owners operating in the same fishery. These "types" may present potential complications for thinking about the benefits of a fishery-wide revenue co-op. However, if we can identify these "types" (e.g., through cluster analysis) then they might be useful to consider for cross fishery co-ops. It is worthwhile noting that the "03" salmon fisheries tend to consistently have the lowest levels of annual revenue heterogeneity.
+
+### Within Fishery Heterogeneity (Fishery Specific Revenue Only CV)
+
+```{r OwnerHeterogeneity Plot 1, fig.width=15}
+dfoh %>% 
+  filter(substr(CFEC.Permit.Fishery,3,4)=="01") %>% 
+  ggplot(aes(x = Batch.Year, y = owner.cv, group = CFEC.Permit.Fishery, color = CFEC.Permit.Fishery)) +
+  geom_line() +
+  labs(x = "Batch Year", y = "Fishery Revenue CV", color = "Fishery",title = "Within-Fishery Revenue Heterogeneity (fishery-specific revenue)")
+
+dfoh %>% 
+  filter(substr(CFEC.Permit.Fishery,3,4)=="03") %>% 
+  ggplot(aes(x = Batch.Year, y = owner.cv, group = CFEC.Permit.Fishery, color = CFEC.Permit.Fishery)) +
+  geom_line() +
+  labs(x = "Batch Year", y = "Fishery Revenue CV", color = "Fishery",title = "Within-Fishery Revenue Heterogeneity (fishery-specific revenue)")
+
+dfoh %>% 
+  filter(substr(CFEC.Permit.Fishery,3,4)=="04") %>% 
+  ggplot(aes(x = Batch.Year, y = owner.cv, group = CFEC.Permit.Fishery, color = CFEC.Permit.Fishery)) +
+  geom_line() +
+  labs(x = "Batch Year", y = "Fishery Revenue CV", color = "Fishery",title = "Within-Fishery Revenue Heterogeneity (fishery-specific revenue)")
+
+dfoh %>% 
+  filter(substr(CFEC.Permit.Fishery,3,4)=="05" | substr(CFEC.Permit.Fishery,3,4)=="15") %>% 
+  ggplot(aes(x = Batch.Year, y = owner.cv, group = CFEC.Permit.Fishery, color = CFEC.Permit.Fishery)) +
+  geom_line() +
+  labs(x = "Batch Year", y = "Fishery Revenue CV", color = "Fishery",title = "Within-Fishery Revenue Heterogeneity (fishery-specific revenue)")
+
+```
+
+### Within Fishery Heterogeneity (Total Owner Revenue CV)
+
+```{r OwnerHeterogeneity Plot 2, fig.width=15}
+dfoh_tot %>% 
+  filter(substr(CFEC.Permit.Fishery,3,4)=="01") %>% 
+  ggplot(aes(x = Batch.Year, y = owner.cv, group = CFEC.Permit.Fishery, color = CFEC.Permit.Fishery)) +
+  geom_line() +
+  labs(x = "Batch Year", y = "Fishery Revenue CV", color = "Fishery",title = "Within-Fishery Revenue Heterogeneity (total owner revenue)")
+
+dfoh_tot %>% 
+  filter(substr(CFEC.Permit.Fishery,3,4)=="03") %>% 
+  ggplot(aes(x = Batch.Year, y = owner.cv, group = CFEC.Permit.Fishery, color = CFEC.Permit.Fishery)) +
+  geom_line() +
+  labs(x = "Batch Year", y = "Fishery Revenue CV", color = "Fishery",title = "Within-Fishery Revenue Heterogeneity (total owner revenue)")
+
+dfoh_tot %>% 
+  filter(substr(CFEC.Permit.Fishery,3,4)=="04") %>% 
+  ggplot(aes(x = Batch.Year, y = owner.cv, group = CFEC.Permit.Fishery, color = CFEC.Permit.Fishery)) +
+  geom_line() +
+  labs(x = "Batch Year", y = "Fishery Revenue CV", color = "Fishery",title = "Within-Fishery Revenue Heterogeneity (total owner revenue)")
+
+dfoh_tot %>% 
+  filter(substr(CFEC.Permit.Fishery,3,4)=="05" | substr(CFEC.Permit.Fishery,3,4)=="15") %>% 
+  ggplot(aes(x = Batch.Year, y = owner.cv, group = CFEC.Permit.Fishery, color = CFEC.Permit.Fishery)) +
+  geom_line() +
+  labs(x = "Batch Year", y = "Fishery Revenue CV", color = "Fishery",title = "Within-Fishery Revenue Heterogeneity (total owner revenue)")
+
+```
+
+
+## Owner mean-revenue distributions
+
+Lastly, while the consideration of mean-variance tradeoff of a co-op will depend on the how the revenue is revenue is distributed across the co-op, I include histograms of the mean revenues of owners annual revenue in the salmon fisheries
+
+```{r mean revenue, echo=FALSE}
+{# Plot
+plotlist_mean <- list()
+  for (i in 1:3) {
+    plotlist_mean[[i]] <- df_tot %>% 
+      filter(period==i) %>% 
+      ggplot(aes(x = owner.mean)) +
+      geom_histogram(data = df %>% filter(period==i), aes(fill = "Fishery Specific Revenue"), alpha = 0.35) +
+      geom_histogram(aes(fill = "Total Owner Revenue"), alpha = 0.35) +
+      xlim(c(0, 1000000)) +
+      facet_wrap(~ CFEC.Permit.Fishery) +
+      labs(x = "Owner mean", y = "Count", title = paste0("Histogram of owner mean revenue: Period==",i))
+  }#plot total revenue and fishery specific revenue mean
+}#total revenue mean
+```
+
+```{r mean revenue plots, fig.width=15}
+print(plotlist_mean[[1]])
+print(plotlist_mean[[2]])
+print(plotlist_mean[[3]])
+```
+
+```{r revenue per trip}
+rpt_df <- permit.annual.rev %>% 
+  ungroup() %>% 
+  mutate(period = floor((Batch.Year - 1991) / period_length) + 1) %>%
+  group_by(Batch.Year, CFEC.Permit.Holder.Filing.Number, CFEC.Permit.Fishery) %>% 
+  mutate(owner.rev = sum(year.revenue, na.rm = TRUE)) %>% #owner annual revenue from a specific fishery
+  group_by(period, CFEC.Permit.Holder.Filing.Number) %>% 
+  mutate(active_years = n_distinct(Batch.Year)) %>% 
+  group_by(period, CFEC.Permit.Fishery) %>% 
+  mutate(active_fishers = n_distinct(CFEC.Permit.Holder.Filing.Number)) %>% 
+  filter(active_fishers>20) %>% 
+  filter(substr(CFEC.Permit.Fishery,1,1)=="S") %>% 
+  filter(substr(CFEC.Permit.Fishery,1,3)!="S 7") %>%
+  ungroup() %>% 
+  mutate(revenue.weight = year.revenue / owner.rev) %>%
+  group_by(Batch.Year, CFEC.Permit.Holder.Filing.Number, CFEC.Permit.Fishery) %>% #aggregating variables 'Vessel.ADFG.Number' AND 'CFEC.Permit.Serial.Number' but we are only aggregating up to the fishery level (CFEC.Permit.Fishery) so if there are multiple permits in the same fishery under the same owner, they'll be aggregated
+  summarise(avg.revenue.ptrip = sum(revenue.per.trip*revenue.weight), rm.na = TRUE) %>% 
+  ungroup() %>% 
+  mutate(period = floor((Batch.Year - 1991) / period_length) + 1) %>% 
+  group_by(period, CFEC.Permit.Holder.Filing.Number, CFEC.Permit.Fishery) %>%
+  summarise(avg.revenue.ptrip = mean(avg.revenue.ptrip, na.rm = TRUE))
+
+rpt_df_tot <- permit.annual.rev %>% 
+  ungroup() %>% 
+  mutate(period = floor((Batch.Year - 1991) / period_length) + 1) %>%
+  group_by(Batch.Year, CFEC.Permit.Holder.Filing.Number) %>% 
+  mutate(owner.tot.rev = sum(year.revenue, na.rm = TRUE)) %>% #owner total annual revenue
+  group_by(period, CFEC.Permit.Holder.Filing.Number) %>% 
+  mutate(active_years = n_distinct(Batch.Year)) %>% 
+  group_by(period, CFEC.Permit.Fishery) %>% 
+  mutate(active_fishers = n_distinct(CFEC.Permit.Holder.Filing.Number)) %>% 
+  filter(active_fishers>20) %>% 
+  ungroup() %>% 
+  mutate(revenue.weight = year.revenue / owner.tot.rev) %>% #boat-permit-vessel's share of the owner's total revenue during the year
+  group_by(Batch.Year, CFEC.Permit.Holder.Filing.Number, CFEC.Permit.Fishery) %>% #aggregating variables 'Vessel.ADFG.Number' AND 'CFEC.Permit.Serial.Number' but we are only aggregating up to the fishery level (CFEC.Permit.Fishery) so if there are multiple permits in the same fishery under the same owner, they'll be aggregated
+  summarise(avg.revenue.ptrip = sum(revenue.per.trip*revenue.weight), rm.na = TRUE) %>% 
+  ungroup() %>% 
+  mutate(period = floor((Batch.Year - 1991) / period_length) + 1) %>% 
+  group_by(period, CFEC.Permit.Holder.Filing.Number, CFEC.Permit.Fishery) %>%
+  summarise(avg.revenue.ptrip = mean(avg.revenue.ptrip, na.rm = TRUE)) %>% 
+  filter(substr(CFEC.Permit.Fishery,1,1)=="S") %>% 
+  filter(substr(CFEC.Permit.Fishery,1,3)!="S 7")
+
+plotlist_rpt <- list()
+  for (i in 1:3) {
+    plotlist_rpt[[i]] <- rpt_df_tot %>% 
+      filter(period==i) %>% 
+      ggplot(aes(x = avg.revenue.ptrip)) +
+      geom_histogram(data = rpt_df %>% filter(period==i), aes(fill = "Density - Fishery Specific Revenue"), alpha = 0.35) +
+      geom_histogram(aes(fill = "Density - Total Owner Revenue"), alpha = 0.35) +
+      facet_wrap(~ CFEC.Permit.Fishery) +
+      labs(x = "Owner 10-year average revenue per trip", y = "Density", title = paste0("Density plot of average Owner Revenue Per Trip: Period==",i)) +
+      xlim(c(0, 7000)) +
+      scale_fill_manual(name = "", values = c("Density - Fishery Specific Revenue" = "red", "Density - Total Owner Revenue" = "blue2"))
+  }#plot total revenue and fishery specifc revnue revenue per trip 
+```
+
+Highly spread out revenue per trip indicates within-season heterogeneity in trip productivity. If trip productivity is extremely variable, owners might be more interested in within-season revenue smoothing.
+
+```{r plot revenue per trip, fig.width=20}
+print(plotlist_rpt[[1]])
+print(plotlist_rpt[[2]])
+print(plotlist_rpt[[3]])
+```
+
+```{r rpt week, fig.width=20, cache=TRUE, echo=FALSE}
+trip.rev.df <- trip.data %>% 
+  filter(!is.na(trip.duration)) %>% 
+  mutate(Date.Fishing.Began = as.Date(as.character(Date.Fishing.Began),format = "%Y%m%d"),
+         Date.Landed = as.Date(as.character(Date.Landed),format = "%Y%m%d")) %>% 
+  group_by(Batch.Year, CFEC.Permit.Holder.Filing.Number, Vessel.ADFG.Number, CFEC.Permit.Serial.Number,trip.id) %>% 
+    summarise(trip.revenue=sum(CFEC.Value..Detail., na.rm = TRUE),
+              trip.duration = max(trip.duration, na.rm = TRUE), 
+              max.seq.num = max(CFEC.Permit.Sequence), 
+              CFEC.Vessel.Owner.Filing.Number = ifelse(all(is.na(CFEC.Vessel.Owner.Filing.Number)), NA,
+                                                       first(na.omit(CFEC.Vessel.Owner.Filing.Number))), 
+              CFEC.Permit.Fishery = ifelse(all(is.na(CFEC.Permit.Fishery)), NA, first(na.omit(CFEC.Permit.Fishery))),
+              week = floor_date(Date.Landed, "week"), 
+              month = floor_date(Date.Landed, "month"))
+
+trip.rev.df <- trip.rev.df %>% 
+  group_by(Batch.Year, CFEC.Permit.Holder.Filing.Number) %>% 
+  mutate(year.revenue = sum(trip.revenue, na.rm = TRUE), 
+         num.trips = n_distinct(trip.id), 
+         revenue.pre.trip = year.revenue/num.trips) %>%
+  ungroup() %>% 
+  mutate(rev.share = trip.revenue / year.revenue) %>% 
+  group_by(Batch.Year, CFEC.Permit.Holder.Filing.Number) %>% 
+  mutate(rev.conc = sum(rev.share^2, na.rm = TRUE), rev.share.check = sum(rev.share, na.rm = TRUE))
+  
+  
+fishery.time.conc <- trip.rev.df %>% 
+  group_by(Batch.Year, CFEC.Permit.Fishery, week) %>% 
+  summarise(weekly.fishery.revenue = sum(trip.revenue, na.rm = TRUE)) %>% 
+  group_by(Batch.Year, CFEC.Permit.Fishery) %>% 
+  mutate(annual.fishery.revenue = sum(weekly.fishery.revenue, na.rm = TRUE)) %>% 
+  ungroup() %>% 
+  mutate(rev.share = weekly.fishery.revenue / annual.fishery.revenue) %>% 
+  group_by(Batch.Year, CFEC.Permit.Fishery) %>% 
+  mutate(rev.conc = sum(rev.share^2, na.rm = TRUE), rev.share.check = sum(rev.share, na.rm = TRUE)) 
+  
+  
+plot1 <- fishery.time.conc %>% 
+  filter(substr(CFEC.Permit.Fishery,3,4)=="03" & substr(CFEC.Permit.Fishery,1,1)=="S") %>% 
+  ggplot(aes(x = Batch.Year, y = rev.conc, group = CFEC.Permit.Fishery, color = CFEC.Permit.Fishery)) +
+  geom_line() +
+  labs(x = "Year", y = "Fishery Revenue Week Concentration (HHI)", color = "Fishery",title = "Within-Fishery Concentration of Revenue over time (by year)")
+print(plot1)  
+
+plot2 <- fishery.time.conc %>% 
+  filter(substr(CFEC.Permit.Fishery,3,4)=="01" & substr(CFEC.Permit.Fishery,1,1)=="S") %>% 
+  ggplot(aes(x = Batch.Year, y = rev.conc, group = CFEC.Permit.Fishery, color = CFEC.Permit.Fishery)) +
+  geom_line() +
+  labs(x = "Year", y = "Fishery Revenue Week Concentration (HHI)", color = "Fishery",title = "Within-Fishery Concentration of Revenue over time (by year)")
+print(plot2)  
+
+plot3 <- fishery.time.conc %>% 
+  filter(substr(CFEC.Permit.Fishery,3,4)=="04" & substr(CFEC.Permit.Fishery,1,1)=="S") %>% 
+  ggplot(aes(x = Batch.Year, y = rev.conc, group = CFEC.Permit.Fishery, color = CFEC.Permit.Fishery)) +
+  geom_line() +
+  labs(x = "Year", y = "Fishery Revenue Week Concentration (HHI)", color = "Fishery",title = "Within-Fishery Concentration of Revenue over time (by year)")
+print(plot3)  
+
+plot4 <- fishery.time.conc %>% 
+  filter(substr(CFEC.Permit.Fishery,1,1)=="S") %>% 
+  #filter((substr(CFEC.Permit.Fishery,3,4)=="05" | substr(CFEC.Permit.Fishery,3,4)=="15")) %>% 
+  ggplot(aes(x = Batch.Year, y = rev.conc, group = CFEC.Permit.Fishery, color = CFEC.Permit.Fishery)) +
+  geom_line() +
+  labs(x = "Year", y = "Fishery Revenue Week Concentration (HHI)", color = "Fishery",title = "Within-Fishery Concentration of Revenue over time (by year")
+print(plot4)  
+
+```
+
+```{r median revenue time hhi, fig.width=20, echo=FALSE}
+#fishery.time.conc %>% 
+#  select(-week, -weekly.fishery.revenue) %>% 
+#  distinct() %>% 
+#  ungroup() %>% 
+#  mutate(period = floor((Batch.Year - 1991) / period_length) + 1) %>%
+#  group_by(period, CFEC.Permit.Fishery) %>% 
+#  summarise(median.hhi = median(rev.conc)) %>% View()
+
+```
+
+
+
+## Summary of variables plotted
+
+#### Within fishery / across individual
+
+-   this variable takes the CV of revenue of owners within a given year for a given fishery and I just plot this over time
+-   describes the heterogeneity of owner revenue within any given year
+-   two versions of this where we use the (a) owner revenue from the specific fishery and only consider that for each CV calculation and (b) owners' total revenues across all fisheries.
+-   time is not considered and we just plot over it
+
+#### Within fishery / across time
+
+-   This variable takes the CV of Fishery-wide revenue over time. Each Fishery gets one CV per 10 year "period". Periods are 1991-2000, 2001-2010, 2011-2020.
+-   Describes the uncertainty in revenue of the total fishery
+-   correlation table shows which fisheries' total revenue are correlated
+
+#### Within owner across time
+
+-   This variable is the CV of owner-level revenue across a ten-year time period.
+-   Periods are 1991-2000, 2001-2010, 2011-2020.
+-   Describes the owners' revenue variability across time
+-   There are two versions of this measure where I use the (a) owner revenue from the specific fishery and only consider that for each CV calculation and (b) owners' total revenues across all fisheries.
+-   owners must have obtained fishery revenue in at least two years to be included
+-   I plot over multiple fisheries
+
+#### Owner mean-revenue distributions
+
+-   This variable is the mean annual revenue of owner across ten-year time period.
+-   Periods are 1991-2000, 2001-2010, 2011-2020.
+-   Describes the owners' average revenue 
+-   There are two versions of this measure where I use the (a) owner revenue from the specific fishery and only consider that for each CV calculation and (b) owners' total revenues across all fisheries.
+-  Plotted over multiple fisheries

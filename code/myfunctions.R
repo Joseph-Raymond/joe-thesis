@@ -38,6 +38,7 @@ second_max <- function(x){#function that returns the second largest value in a v
     else{return(sort(x)[length(x) - 1])}
 }
 
+
 get.firstpermit <- function(df){ #gets the first permit for each vessel-year; picking the permit for each vessel that has the most revenue in a given year
   df["CFEC.Value..Detail."][is.na(df["CFEC.Value..Detail."])] <- 0#fill the na's with 0
   df_test <- df %>% ungroup() %>%  group_by(Batch.Year, Vessel.ADFG.Number, CFEC.Permit.Fishery) %>% summarise(tot.revenue = sum(CFEC.Value..Detail.), s_specialist = first(s_specialist))%>% ungroup() %>% filter(CFEC.Permit.Fishery!="")
@@ -86,17 +87,21 @@ get.primeport <- function(df){
 
 get.trip <- function(df){#requires following vairables: (Date.Fishing.Began, Date.Landed, Week.Ending.Date, Vessel.ADFG.Number)
   #df <- df %>% mutate(trip.id = group_indices(Vessel.ADFG.Number,Date.Landed))
-  df["CFEC.Value..Detail."][is.na(df["CFEC.Value..Detail."])] <- 0#fill the na's with 0
+  catch_data_temp <- catch_data_temp %>% mutate(CFEC.Value..Detail. = if_else(is.na(CFEC.Value..Detail.),0,CFEC.Value..Detail.))
   df <- df %>% ungroup() %>% group_by(Vessel.ADFG.Number,Date.Landed) %>% mutate(trip.id = cur_group_id()) %>% ungroup()
-#  df$Date.Fishing.Began <- as.Date(as.character(df$Date.Fishing.Began),format = "%Y%m%d")
-#  df$Date.Landed <- as.Date(as.character(df$Date.Landed),format = "%Y%m%d")
-#  df$Week.Ending.Date <- as.Date(df$Week.Ending.Date,format = "%Y-%m-%d")
-#  df <- df %>% mutate(week = as.Date(cut(Date.Landed, "week")))#format time variables
   Date.Fishing.Began <- as.Date(as.character(df$Date.Fishing.Began),format = "%Y%m%d")
   Date.Landed <- as.Date(as.character(df$Date.Landed),format = "%Y%m%d")
   #Week.Ending.Date <- as.Date(df$Week.Ending.Date,format = "%Y-%m-%d")
   tlength <- difftime(Date.Landed, Date.Fishing.Began, units="days")
   df <- df %>% mutate(trip.length = tlength)#format time variables
+  return(df)
+}
+
+get.trip.new <- function(df){#requires following vairables: (Date.Fishing.Began, Date.Landed, Week.Ending.Date, Vessel.ADFG.Number)
+  df <- df %>% mutate(CFEC.Value.Detail = if_else(is.na(CFEC.Value.Detail),0,CFEC.Value.Detail)) %>% 
+    group_by(Vessel.ADFG.Number,Date.Landed) %>% mutate(day.vessel.id = cur_group_id()) %>% 
+    ungroup() %>% 
+    mutate(Date.Fishing.Began = as.Date(as.character(Date.Fishing.Began),format = "%Y%m%d"), Date.Landed = as.Date(as.character(Date.Landed),format = "%Y%m%d"), trip.length = difftime(Date.Landed, Date.Fishing.Began, units="days")) %>% 
   return(df)
 }
 

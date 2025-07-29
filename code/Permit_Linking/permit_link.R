@@ -29,6 +29,13 @@ permit_clean <- permit_clean %>% filter(!is.na(Vessel.ADFG.Number), Batch.Year>=
   catch_data_temp["CFEC.Value..Detail."][is.na(catch_data_temp["CFEC.Value..Detail."])] <- 0#fill the NA's in the value of catch with 0's
   catch_data_temp %>% select(CFEC.Permit.Serial.Number, CFEC.Permit.Sequence, Permit.Year.Sequence, Permit.Serial.Number) %>% head()
   
+  catch_data_temp %>% group_by(Vessel.ADFG.Number, Batch.Year) %>% filter(any(is.na(Permit.Serial.Number)) ) %>% group_by(Batch.Year) %>%
+    summarise(uvessel = length(unique(Vessel.ADFG.Number)))
+  catch_data_temp %>% group_by(Vessel.ADFG.Number, Batch.Year) %>% filter(any(is.na(Permit.Serial.Number)) ) %>% group_by(AKR.Homeport.State) %>%
+    summarise(state_count = n())
+    
+  #filter out boats that made landings but did not report the permit/fishery in which they made the landing
+  catch_data_temp <- catch_data_temp %>% group_by(Vessel.ADFG.Number, Batch.Year) %>% filter(!any(is.na(Permit.Serial.Number)) ) %>% ungroup()
 #CFEC.Permit.Serial.Number. Different serial number ranges are used depending upon the permit type (CFEC_PMT_TYPE). Mariculture (acquatic farm) is 10000-10499, experimental is 10500-10599, test fishing is 10600-10699, educational is 10700-10799, reservation is 10800-10899, hatchery cost recovery is 10900-10999, interim-use in an unlimited fishery is 11000-49999, interimentry in a limited fishery is 50000-54999, moratorium is 50000-54999, vessel moratorium is 50000-54999, permanent in a limited fishery is 55000-99999, vessel permanent in a vessel limited fishery is 55000-99999. This field will be blank if the permit information on the fish ticket could not be matched to the CFEC permit file. The variable "Permit.Serial.Number" is from the fish ticket data but there are some observations that can't be matched to the permit data 
   
 }
@@ -40,7 +47,7 @@ permit_clean <- permit_clean %>% filter(!is.na(Vessel.ADFG.Number), Batch.Year>=
   permit.annual.rev <- permit.annual.rev %>% mutate(trip.duration=ifelse(trip.duration>0,trip.duration, NA))#going out and back the same day should lead to trip duration = 1
   permit.annual.rev <- permit.annual.rev %>% 
     group_by(Vessel.ADFG.Number, Batch.Year, CFEC.Permit.Fishery, CFEC.Permit.Serial.Number) %>% 
-    summarise(year.revenue=sum(CFEC.Value..Detail., na.rm = TRUE), num.trips = n_distinct(trip.id), fishing.days = sum(trip.duration, na.rm = TRUE), unique.checks = n_distinct(CFEC.Permit.Check), CFEC.Permit.Check = first(CFEC.Permit.Check), max.seq.num = max(CFEC.Permit.Sequence)) %>% 
+    summarise(year.revenue=sum(CFEC.Value..Detail., na.rm = TRUE), num.trips = n_distinct(trip.id), fishing.days = sum(trip.duration, na.rm = TRUE), unique.checks = n_distinct(CFEC.Permit.Check), CFEC.Permit.Check = first(CFEC.Permit.Check), max.seq.num = max(CFEC.Permit.Sequence), File.Number = first(CFEC.Vessel.Owner.Filing.Number)) %>% 
     mutate(revenue.per.trip = year.revenue/(num.trips*fishing.days))
 }
 
@@ -66,9 +73,14 @@ sum(is.na(permit_clean_join$unique.checks))#number of unmatched values
 
 permit_clean_join %>% ungroup() %>% filter(is.na(CFEC.Permit.Check.y)) %>% count(linked_permits) %>% View()#unjoined permits count by number of permits held by the boat in the same year
 permit_clean_join %>% ungroup() %>% filter(is.na(CFEC.Permit.Check.y)) %>% View()#unjoined permits
-
-#now get the permit class ("S03T") revenue shares
-test <- permit.annual.rev %>% #permit number level data
+#filter out the vessel-year landings which have missing permit serial number
+sum(permit.annual.rev$CFEC.Permit.Fishery=="")==sum(is.na(permit.annual.rev$CFEC.Permit.Serial.Number))
+missing_permit_vessels <- permit.annual.rev %>% group_by(Batch.Year, Vessel.ADFG.Number) %>% filter(any(is.na(CFEC.Permit.Serial.Number))) %>% ungroup()
+permit.annual.rev <- permit.annual.rev %>% group_by(Batch.Year, Vessel.ADFG.Number) %>% filter(all(!is.na(CFEC.Permit.Serial.Number))) %>% ungroup()
+{
+  #now get the permit class ("S03T") revenue shares
+test <- permit.annual.rev %>% #permit number level data ticket data
+  group_by(Batch.Year, Vessel.ADFG.Number) %>%  
   group_by(Batch.Year, Vessel.ADFG.Number, CFEC.Permit.Fishery) %>% 
   summarise(annual.revenue = sum(year.revenue, na.rm = TRUE)) %>% #permit class revenue
   group_by(Batch.Year, Vessel.ADFG.Number) %>% 
@@ -81,7 +93,7 @@ test <- permit.annual.rev %>% #permit number level data
   right_join(permit_clean_join, join_by(Vessel.ADFG.Number, Batch.Year, Fishery), na_matches = "never") 
 
 test %>% filter(is.na(annual.revenue)) %>% count()
-test %>% filter(is.na(unique.checks)) %>% count()#This number is less than the previous because there are some boat-years that have multiple of the same type of permit (like S03T) but they only use some of their permits (permits here meaning unique permit serial numbers)
+test %>% filter(is.na(unique.checks)) %>% count()#This number is less than the previous because there are some boat-years that have multiple of the same type of permit (like S03T) but they only use some of their permits (permits here meaning unique permit serial numbers) %this is broken right now 
 test %>% filter(is.na(annual.revenue) & is.na(unique.checks)) %>% count()#Same as number of missing values for "annual.revenue". Thus, missing values for unique.checks are also missing for annual.revenue but not vice versa. This is because of what is described in the previous comment.
 
 test <- test %>% ungroup() %>% mutate(did.fish = if_else(is.na(year.revenue),0,1)) %>% 
@@ -94,23 +106,37 @@ datareg <- test %>% mutate(period = if_else(Batch.Year>2004, 1,0)) %>%
   group_by(Vessel.ADFG.Number, Batch.Year) %>% 
   summarise(period = first(period), vessel.year.rev = first(vessel.year.rev), annual.revenue = sum(annual.revenue, na.rm = TRUE), hhi = first(hhi), prime.fishery = first(Fishery[annual.revenue==max(annual.revenue, na.rm = TRUE)]), linked.permits = first(linked_permits), num.dist.fishery = first(num.dist.fishery), num.fished.fishery = first(num.fished.fishery), num.unfished.fishery = first(num.unfished.fishery), num.trips = sum(num.trips, na.rm = TRUE)) %>% 
   ungroup() %>% 
-  mutate(vessel.year.rev=if_else(is.na(vessel.year.rev), 0, vessel.year.rev))
+  mutate(vessel.year.rev=if_else(is.na(vessel.year.rev), 0, vessel.year.rev), hhi_dist = hhi-(1/num.dist.fishery))#(1/num.dist.fishery) is the lowest (most diverse HHI)
 
 datareg %>% filter(identical(vessel.year.rev, annual.revenue)) %>% View()
 
 datareg2 <- datareg %>% group_by(Vessel.ADFG.Number, period) %>% 
-  summarise(rev.cv = sd(vessel.year.rev, na.rm = TRUE)/mean(vessel.year.rev, na.rm = TRUE), mean.hhi = mean(hhi, na.rm = TRUE), prime.fishery = first(prime.fishery[vessel.year.rev==max(vessel.year.rev, na.rm = TRUE)]), median.dist.fish = median(num.dist.fishery, na.rm = TRUE), median.fished.fishery = median(num.fished.fishery, na.rm = TRUE), median.unfished.fishery = median(num.unfished.fishery, na.rm = TRUE), median.trips = median(num.trips, na.rm = TRUE))
+  summarise(rev.cv = sd(vessel.year.rev, na.rm = TRUE)/mean(vessel.year.rev, na.rm = TRUE), mean.hhi = mean(hhi, na.rm = TRUE), med.hhi_dist = median(hhi_dist, na.rm=TRUE), prime.fishery = first(prime.fishery[vessel.year.rev==max(vessel.year.rev, na.rm = TRUE)]), median.dist.fish = median(num.dist.fishery, na.rm = TRUE), median.fished.fishery = median(num.fished.fishery, na.rm = TRUE), median.unfished.fishery = median(num.unfished.fishery, na.rm = TRUE), median.trips = median(num.trips, na.rm = TRUE))
+}
 
-model8 = femlm(log(rev.cv) ~ log(mean.hhi) + log(median.fished.fishery) | prime.fishery+period, datareg2, family = "gaussian")
-model7 = femlm(log(rev.cv) ~ log(mean.hhi) + log(median.dist.fish) + log(median.fished.fishery) | prime.fishery+period, datareg2, family = "gaussian")
-model6 = femlm(log(rev.cv) ~ log(mean.hhi) + log(median.fished.fishery) + log(median.dist.fish) + log(median.unfished.fishery) | prime.fishery+period, datareg2, family = "gaussian")
-model5 = femlm(log(rev.cv) ~ log(median.fished.fishery) + log(median.dist.fish) + log(median.unfished.fishery) | prime.fishery+period, datareg2, family = "gaussian")
-model4 = femlm(log(rev.cv) ~ log(mean.hhi) + log(median.dist.fish) + log(median.unfished.fishery) | prime.fishery+period, datareg2, family = "gaussian")
-model3 = femlm(log(rev.cv) ~ log(mean.hhi) + log(median.unfished.fishery) | prime.fishery+period, datareg2, family = "gaussian")
-model2 = femlm(log(rev.cv) ~ log(mean.hhi) + log(median.dist.fish) | prime.fishery+period, datareg2, family = "gaussian")
+{
+model9 = femlm(log(rev.cv) ~ log(mean.hhi) + (median.fished.fishery) + (median.unfished.fishery) | prime.fishery+period, datareg2, family = "gaussian")
+model8 = femlm(log(rev.cv) ~ log(mean.hhi) + (median.fished.fishery) | prime.fishery+period, datareg2, family = "gaussian")
+model7 = femlm(log(rev.cv) ~ log(mean.hhi) + (median.dist.fish) + (median.fished.fishery) | prime.fishery+period, datareg2, family = "gaussian")
+model6 = femlm(log(rev.cv) ~ log(mean.hhi) + (median.fished.fishery) + (median.dist.fish) + (median.unfished.fishery) | prime.fishery+period, datareg2, family = "gaussian")
+model5 = femlm(log(rev.cv) ~ (median.fished.fishery) + (median.dist.fish) + (median.unfished.fishery) | prime.fishery+period, datareg2, family = "gaussian")
+model4 = femlm(log(rev.cv) ~ log(mean.hhi) + (median.dist.fish) + (median.unfished.fishery) | prime.fishery+period, datareg2, family = "gaussian")
+model3 = femlm(log(rev.cv) ~ log(mean.hhi) + (median.unfished.fishery) | prime.fishery+period, datareg2, family = "gaussian")
+model2 = femlm(log(rev.cv) ~ log(mean.hhi) + (median.dist.fish) | prime.fishery+period, datareg2, family = "gaussian")
 model1 = femlm(log(rev.cv) ~ log(mean.hhi) | prime.fishery+period, datareg2, family = "gaussian")
 
-etable(model1, model2, model8, model3, model4, model5, model6, model7, tex = TRUE)
+mydict = c('log(mean.hhi)'="log(mean(HHI))", median.dist.fish="median(num. ex-ante fisheries)" , median.unfished.fishery="median(num. unfished fisheries)" , median.fished.fishery="median(num. fished fisheries)", 'log(rev.cv)'="log(CV of Revenue)")
+etable(model1, model2, model8, model3, model4,model9, model7,model5, model6, dict = mydict, tex = TRUE)
+}
+
+{
+  HHI_model_1 = femlm(mean.hhi ~ (median.dist.fish) | prime.fishery+period, datareg2, family = "gaussian")
+  HHI_model_2 = femlm(mean.hhi ~ (median.fished.fishery) | prime.fishery+period, datareg2, family = "gaussian")
+  HHI_model_3 = femlm(mean.hhi ~ (median.fished.fishery) + (median.dist.fish) | prime.fishery+period, datareg2, family = "gaussian")
+  HHI_model_4 = femlm(mean.hhi ~ (median.unfished.fishery) | prime.fishery+period, datareg2, family = "gaussian")
+  HHI_model_5 = femlm(mean.hhi ~ (median.fished.fishery) + (median.unfished.fishery) | prime.fishery+period, datareg2, family = "gaussian")
+  etable(HHI_model_1, HHI_model_2,HHI_model_3,HHI_model_4,HHI_model_5, dict = mydict, tex = TRUE)
+}
 
 test %>% group_by(Vessel.ADFG.Number) %>%
   summarise(correlation = cor(hhi, num.fished.fishery, use = "pairwise.complete.obs")) %>% View()
@@ -176,18 +202,20 @@ rm(test)
   ### hhi   ###
   
   
-  #now get the permit class ("S03T") revenue shares
+  #now get the hhi by permit class 
   test <- permit.annual.rev %>% #permit number level data
-    group_by(Batch.Year, Vessel.ADFG.Number, CFEC.Permit.Fishery) %>% 
-    summarise(annual.revenue = sum(year.revenue, na.rm = TRUE), File.Number = first(File.Number)) %>% #permit class revenue
-    group_by(Batch.Year, Vessel.ADFG.Number) %>% 
-    mutate(vessel.year.rev = sum(annual.revenue, na.rm = TRUE), File.Number = first(File.Number)) %>% #vessel annual total revenue
+    group_by(Batch.Year, Vessel.ADFG.Number, File.Number, CFEC.Permit.Fishery) %>% 
+    summarise(annual.revenue = sum(year.revenue, na.rm = TRUE)) %>% #owner-permit class revenue
+    group_by(Batch.Year, Vessel.ADFG.Number, File.Number) %>% 
+    mutate(vessel.year.rev = sum(annual.revenue, na.rm = TRUE)) %>% #owner-vessel annual total revenue
     ungroup() %>% 
-    mutate(revenue.share = annual.revenue/vessel.year.rev, sq.share = (annual.revenue/vessel.year.rev)^2) %>% 
-    mutate(Fishery = str_replace_all(string=CFEC.Permit.Fishery, pattern=" ", repl="")) %>% #adjust so can link back
-    filter(Fishery!="") %>% select(-CFEC.Permit.Fishery) %>%
-    group_by(Batch.Year, File.Number) %>% mutate(hhi = sum(sq.share)) %>% ungroup() %>% #this is fishery hhi
-    right_join(permit_clean_join, join_by(Vessel.ADFG.Number, Batch.Year, Fishery), na_matches = "never") 
+    mutate(revenue.share = annual.revenue/vessel.year.rev, sq.share = (annual.revenue/vessel.year.rev)^2) %>% #owner-vessel annual revenue share of a permit
+    mutate(Fishery = str_replace_all(string=CFEC.Permit.Fishery, pattern=" ", repl="")) %>% #adjust the string format so can link back
+    filter(Fishery!="") %>% select(-CFEC.Permit.Fishery) %>% #clean and get rid of duplicate variable
+    group_by(Batch.Year, File.Number) %>% mutate(owner.hhi = sum(sq.share)) %>% ungroup() %>% #this is owner hhi
+    right_join(permit_clean_join, join_by(File.Number, Batch.Year, Fishery), na_matches = "never") 
+
+#### EDITING HERE  
   
   test %>% filter(is.na(annual.revenue)) %>% count()
   test %>% filter(is.na(unique.checks)) %>% count()#This number is less than the previous because there are some boat-years that have multiple of the same type of permit (like S03T) but they only use some of their permits (permits here meaning unique permit serial numbers)
@@ -207,19 +235,21 @@ rm(test)
   
   datareg %>% filter(identical(vessel.year.rev, annual.revenue)) %>% View()
 ####  CV  ####  
-  datareg2 <- datareg %>% group_by(File.Number.x, period) %>% 
+  datareg2_owner <- datareg %>% group_by(File.Number.x, period) %>% 
     summarise(rev.cv = sd(vessel.year.rev, na.rm = TRUE)/mean(vessel.year.rev, na.rm = TRUE), mean.hhi = mean(hhi, na.rm = TRUE), prime.fishery = first(prime.fishery[vessel.year.rev==max(vessel.year.rev, na.rm = TRUE)]), median.dist.fish = median(num.dist.fishery, na.rm = TRUE), median.fished.fishery = median(num.fished.fishery, na.rm = TRUE), median.unfished.fishery = median(num.unfished.fishery, na.rm = TRUE), median.trips = median(num.trips, na.rm = TRUE))
   
-  model8 = femlm(log(rev.cv) ~ log(mean.hhi) + log(median.fished.fishery) | prime.fishery+period, datareg2, family = "gaussian")
-  model7 = femlm(log(rev.cv) ~ log(mean.hhi) + log(median.dist.fish) + log(median.fished.fishery) | prime.fishery+period, datareg2, family = "gaussian")
-  model6 = femlm(log(rev.cv) ~ log(mean.hhi) + log(median.fished.fishery) + log(median.dist.fish) + log(median.unfished.fishery) | prime.fishery+period, datareg2, family = "gaussian")
-  model5 = femlm(log(rev.cv) ~ log(median.fished.fishery) + log(median.dist.fish) + log(median.unfished.fishery) | prime.fishery+period, datareg2, family = "gaussian")
-  model4 = femlm(log(rev.cv) ~ log(mean.hhi) + log(median.dist.fish) + log(median.unfished.fishery) | prime.fishery+period, datareg2, family = "gaussian")
-  model3 = femlm(log(rev.cv) ~ log(mean.hhi) + log(median.unfished.fishery) | prime.fishery+period, datareg2, family = "gaussian")
-  model2 = femlm(log(rev.cv) ~ log(mean.hhi) + log(median.dist.fish) | prime.fishery+period, datareg2, family = "gaussian")
-  model1 = femlm(log(rev.cv) ~ log(mean.hhi) | prime.fishery+period, datareg2, family = "gaussian")
+  model9 = femlm(log(rev.cv) ~ log(mean.hhi) + (median.fished.fishery) + (median.unfished.fishery) | prime.fishery+period, datareg2_owner, family = "gaussian")
+  model8 = femlm(log(rev.cv) ~ log(mean.hhi) + (median.fished.fishery) | prime.fishery+period, datareg2_owner, family = "gaussian")
+  model7 = femlm(log(rev.cv) ~ log(mean.hhi) + (median.dist.fish) + (median.fished.fishery) | prime.fishery+period, datareg2_owner, family = "gaussian")
+  model6 = femlm(log(rev.cv) ~ log(mean.hhi) + (median.fished.fishery) + (median.dist.fish) + (median.unfished.fishery) | prime.fishery+period, datareg2_owner, family = "gaussian")
+  model5 = femlm(log(rev.cv) ~ (median.fished.fishery) + (median.dist.fish) + (median.unfished.fishery) | prime.fishery+period, datareg2_owner, family = "gaussian")
+  model4 = femlm(log(rev.cv) ~ log(mean.hhi) + (median.dist.fish) + (median.unfished.fishery) | prime.fishery+period, datareg2_owner, family = "gaussian")
+  model3 = femlm(log(rev.cv) ~ log(mean.hhi) + (median.unfished.fishery) | prime.fishery+period, datareg2_owner, family = "gaussian")
+  model2 = femlm(log(rev.cv) ~ log(mean.hhi) + (median.dist.fish) | prime.fishery+period, datareg2_owner, family = "gaussian")
+  model1 = femlm(log(rev.cv) ~ log(mean.hhi) | prime.fishery+period, datareg2_owner, family = "gaussian")
   
-  etable(model1, model2, model8, model3, model4, model5, model6, model7, tex = TRUE)
+  mydict = c('log(mean.hhi)'="log(mean(HHI))", median.dist.fish="median(num. ex-ante fisheries)" , median.unfished.fishery="median(num. unfished fisheries)" , median.fished.fishery="median(num. fished fisheries", 'log(rev.cv)'="log(CV of Revenue)")
+  etable(model1, model2, model8, model3, model4,model9, model7,model5, model6, dict = mydict, tex = TRUE)
 
 }
 

@@ -169,7 +169,7 @@ tr/productivty
 
 
 
-ratio <- df.primmeport %>% ungroup() %>%  filter(!is.na(is.primeport)) %>% group_by(Batch.Year, is.primeport) %>% summarise(trips = sum(num.trips), revenue = sum(port.revenue)) #%>% summarise(ratio = sum(num.trips), revenue = sum(port.revenue)) 
+ratio <- df.primmeport %>% ungroup() %>%  filter(!is.na(is.primeport)) %>% group_by(Batch.Year, is.primeport) %>% summarise(trips = sum(num.trips), revenue = sum(port.revenue)) # %>% summarise(ratio = sum(num.trips), revenue = sum(port.revenue)) 
 table(ratio$is.primeport)
   
   
@@ -184,5 +184,8 @@ p1 <- df.primmeport %>% ungroup() %>%  filter(!is.na(is.primeport)) %>% ggplot(a
   geom_bar(aes(weight = port.revenue/nyears), fill="steelblue")+
   ylab("Total Revenue Landed at Port")
 p1
+
+
+
 
 
