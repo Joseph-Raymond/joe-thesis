@@ -1,0 +1,26 @@
+\begin{table}
+\centering
+\begin{talltblr}[         %% tabularray outer open
+caption={Determinants of downside risk and volatility (Permit owner × period)},
+note{}={* p \num{< 0.1}, ** p \num{< 0.05}, *** p \num{< 0.01}},
+note{ }={All models include permit-holder and period fixed effects. Standard errors are two-way clustered by permit-holder and period.},
+]                     %% tabularray outer close
+{                     %% tabularray inner open
+colspec={Q[]Q[]Q[]Q[]},
+hline{2}={1-4}{solid, black, 0.05em},
+hline{6}={1-4}{solid, black, 0.05em},
+hline{1}={1-4}{solid, black, 0.1em},
+hline{9}={1-4}{solid, black, 0.1em},
+column{2-4}={}{halign=c},
+column{1}={}{halign=l},
+}                     %% tabularray inner close
+& Downside (log CVaR25/mean) & Tail depth (log shortfall25) & Volatility (log CV) \\
+Long-run HHI (\$H\textasciicircum{}\{LR\}\$) & \num{-0.753}*** & \num{0.180}** & \num{0.639}*** \\
+& (\num{0.099}) & (\num{0.078}) & (\num{0.127}) \\
+Share variance (\$\textbackslash{}Phi\$) & \num{-2.688}*** & \num{0.475}*** & \num{1.978}*** \\
+& (\num{0.205}) & (\num{0.138}) & (\num{0.162}) \\
+Observations & \num{8096} & \num{8102} & \num{8103} \\
+R\$\textasciicircum{}2\$ (within) & \num{0.179} & \num{0.003} & \num{0.162} \\
+RMSE & \num{0.447} & \num{0.627} & \num{0.342} \\
+\end{talltblr}
+\end{table}

@@ -1,0 +1,35 @@
+
+\begingroup
+\centering
+\begin{tabular}{lcccc}
+   \tabularnewline \midrule \midrule
+   Dependent Variable: & \multicolumn{4}{c}{log(CV)}\\
+   Model:                                        & (1)           & (2)           & (3)           & (4)\\  
+   \midrule
+   \emph{Variables}\\
+   Long-run HHI ($H^{LR}$)                       & 0.5231$^{**}$ & 0.4540$^{**}$ & 0.4488$^{**}$ & 0.4028$^{**}$\\   
+                                                 & (0.0901)      & (0.0868)      & (0.0861)      & (0.0853)\\   
+   Effort Effect ($\overline{H}^E$)              & 2.717$^{***}$ & 0.9117$^{**}$ &               &   \\   
+                                                 & (0.2015)      & (0.1001)      &               &   \\   
+   Productivity Effect ($\overline{H}^K$)        & 0.4824        &               & 0.9003$^{**}$ &   \\   
+                                                 & (0.2529)      &               & (0.1024)      &   \\   
+   Interaction Effect ($\overline{	ext{INT}}$)  & 2.288$^{**}$  &               &               & -0.8765$^{**}$\\   
+                                                 & (0.3074)      &               &               & (0.1018)\\   
+   Period specialist (=1)                        & -0.0376       & -0.0156       & -0.0159       & -0.0114\\   
+                                                 & (0.0210)      & (0.0235)      & (0.0232)      & (0.0233)\\   
+   \midrule
+   \emph{Fixed-effects}\\
+   CFEC.Permit.Holder.Filing.Number              & Yes           & Yes           & Yes           & Yes\\  
+   period                                        & Yes           & Yes           & Yes           & Yes\\  
+   \midrule
+   \emph{Fit statistics}\\
+   Observations                                  & 23,505        & 23,505        & 23,505        & 23,505\\  
+   Within R$^2$                                  & 0.07938       & 0.07554       & 0.07273       & 0.07149\\  
+   RMSE                                          & 0.40545       & 0.40629       & 0.40691       & 0.40718\\  
+   \midrule \midrule
+   \multicolumn{5}{l}{\emph{Clustered (CFEC.Permit.Holder.Filing.Number \& period) standard-errors in parentheses}}\\
+   \multicolumn{5}{l}{\emph{Signif. Codes: ***: 0.01, **: 0.05, *: 0.1}}\\
+\end{tabular}
+\par\endgroup
+
+

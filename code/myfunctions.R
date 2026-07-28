@@ -140,8 +140,103 @@ which.median = function(x) {
 mode <- function(codes){
   which.max(tabulate(codes))
 }
+
+
+get.effort.markers <- function(df){
+  df <- df %>%
+    mutate(
+      week.number = as.integer(strftime(Date.Landed, "%V"))
+    )
+  df.trip.duration <- df %>% 
+    mutate(days.in.year = case_when(
+      is.na(Date.Landed) ~ NA_integer_,
+      leap_year(Date.Landed) ~ 366L,
+      TRUE ~ 365L
+    )) %>% 
+    group_by(Batch.Year, CFEC.Vessel.Owner.Filing.Number, Permit.Fishery, day.vessel.id) %>% 
+    summarise(trip.duration = first(trip.duration), week.number = first(week.number), days.in.year = first(days.in.year)) %>% 
+    group_by(Batch.Year, CFEC.Vessel.Owner.Filing.Number) %>% 
+    mutate(annual.vessel.active.days = n_distinct(day.vessel.id)) %>% 
+    group_by(Batch.Year, CFEC.Vessel.Owner.Filing.Number, Permit.Fishery) %>%
+    mutate(active.days.ratio = sum(trip.duration,na.rm = TRUE)/annual.vessel.active.days, 
+           total.days.ratio = sum(trip.duration,na.rm = TRUE)/days.in.year, 
+           active.weeks = n_distinct(week.number))
+  return(df.trip.duration)
+}#calculates the number of the week when fishing started and also ended
+#outputs the share of total and active weeks for which the permit owner was active in each fishery
 #fishing_communities <- read.csv("~/JoeData/PortNames/fishing_communities.csv")
 #fishing_communities <- fishing_communities %>% group_by(COMMUNITY) %>% summarise(lat = first(LATITUDE), long = first(LONGITUDE))
 #test <- get_permit_cities(path = "~/JoeData/vessels/")
 #test <- test %>% distinct()
 #test <- test %>% left_join()
+cvar_lower <- function(x, q = 0.25) {
+  x <- x[is.finite(x)]
+  if (length(x) == 0) return(NA_real_)
+  thr <- as.numeric(quantile(x, probs = q, type = 7, na.rm = TRUE))
+  mean(x[x <= thr], na.rm = TRUE)
+}
+
+# Decompose the avg-annual-HHI effect into L (HHI^LR) and P (Phi; sum of variance of shares) contributions (within-FE FWL)
+decompose_avgH_effect <- function(df, yvar,
+                                  Lvar = "lr.hhi", Pvar = "rot_var",
+                                  fe_owner = "CFEC.Vessel.Owner.Filing.Number",
+                                  fe_period = "period") {
+  
+  # 1) Build the same sample you use in your regressions
+  df <- df %>%
+    filter(is.finite(.data[[yvar]]),
+           is.finite(.data[[Lvar]]),
+           is.finite(.data[[Pvar]])) %>%
+    mutate(
+      y = log(.data[[yvar]]),
+      L = .data[[Lvar]],
+      P = .data[[Pvar]],
+      z = L + P
+    ) %>%
+    filter(is.finite(y), is.finite(z))
+  
+  # 2) Two-way demean (owner + period) to match FE identification
+  fe_list <- list(df[[fe_owner]], df[[fe_period]])
+  yw <- fixest::demean(df$y, fe_list)
+  Lw <- fixest::demean(df$L, fe_list)
+  Pw <- fixest::demean(df$P, fe_list)
+  zw <- Lw + Pw
+  
+  # guard against zero variance in z
+  vz <- var(zw, na.rm = TRUE)
+  if (!is.finite(vz) || vz <= 0) {
+    return(tibble(yvar = yvar, beta_barH = NA_real_,
+                  beta_L = NA_real_, beta_P = NA_real_,
+                  pct_L = NA_real_, pct_P = NA_real_))
+  }
+  
+  # 3) Within simple slope of y on z = L+P
+  beta_barH <- cov(yw, zw, use = "complete.obs") / vz
+  
+  # 4) Within partial slopes on L and P (OLS on demeaned vars)
+  ok <- is.finite(yw) & is.finite(Lw) & is.finite(Pw)
+  X  <- cbind(L = Lw[ok], P = Pw[ok])
+  yv <- yw[ok]
+  b  <- as.numeric(solve(crossprod(X), crossprod(X, yv)))
+  names(b) <- c("beta_L","beta_P")
+  
+  # 5) Projection weights of L and P onto z within-FE
+  pi_L <- cov(Lw, zw, use = "complete.obs") / vz
+  pi_P <- cov(Pw, zw, use = "complete.obs") / vz
+  
+  # 6) Contributions and percentage shares (sum to ~100% up to rounding)
+  contrib_L <- b["beta_L"] * pi_L
+  contrib_P <- b["beta_P"] * pi_P
+  share_L   <- contrib_L / beta_barH
+  share_P   <- contrib_P / beta_barH
+  
+  tibble(
+    yvar      = yvar,
+    beta_barH = beta_barH,
+    beta_L    = b["beta_L"],
+    beta_P    = b["beta_P"],
+    pct_L     = 100 * share_L,
+    pct_P     = 100 * share_P
+  )
+}
+

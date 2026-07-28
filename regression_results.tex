@@ -1,0 +1,59 @@
+\begin{table}
+\centering
+\begin{tblr}[         %% tabularray outer open
+]                     %% tabularray outer close
+{                     %% tabularray inner open
+colspec={Q[]Q[]Q[]Q[]Q[]Q[]Q[]Q[]Q[]},
+column{2-9}={}{halign=c,},
+column{1}={}{halign=l,},
+hline{34}={1-9}{solid, black, 0.05em},
+}                     %% tabularray inner close
+\toprule
+& Shannon ∼ \# Fisheries & Shannon ∼ \# Species & Shannon ∼ Fisheries × Size & Shannon ∼ Species × Size & log(CV) ∼ Avg Fisheries & log(CV) ∼ Fisheries × Size & log(CV) ∼ Avg Species & log(CV) ∼ Species × Size \\ \midrule %% TinyTableHeader
+num.fisheries & \num{0.252} &  &  &  &  &  &  &  \\
+& (\num{0.004}) &  &  &  &  &  &  &  \\
+num.species &  & \num{0.290} &  &  &  &  &  &  \\
+&  & (\num{0.005}) &  &  &  &  &  &  \\
+num.fisheries × vessel.size20-39 &  &  & \num{0.207} &  &  &  &  &  \\
+&  &  & (\num{0.005}) &  &  &  &  &  \\
+num.fisheries × vessel.size40-59 &  &  & \num{0.279} &  &  &  &  &  \\
+&  &  & (\num{0.005}) &  &  &  &  &  \\
+num.fisheries × vessel.size60+ &  &  & \num{0.220} &  &  &  &  &  \\
+&  &  & (\num{0.011}) &  &  &  &  &  \\
+num.species × vessel.size20-39 &  &  &  & \num{0.231} &  &  &  &  \\
+&  &  &  & (\num{0.006}) &  &  &  &  \\
+num.species × vessel.size40-59 &  &  &  & \num{0.323} &  &  &  &  \\
+&  &  &  & (\num{0.006}) &  &  &  &  \\
+num.species × vessel.size60+ &  &  &  & \num{0.269} &  &  &  &  \\
+&  &  &  & (\num{0.014}) &  &  &  &  \\
+avg.fisheries &  &  &  &  & \num{0.095} &  &  &  \\
+&  &  &  &  & (\num{0.008}) &  &  &  \\
+avg.fisheries × vessel.size20-39 &  &  &  &  &  & \num{0.099} &  &  \\
+&  &  &  &  &  & (\num{0.011}) &  &  \\
+avg.fisheries × vessel.size40-59 &  &  &  &  &  & \num{0.096} &  &  \\
+&  &  &  &  &  & (\num{0.008}) &  &  \\
+avg.fisheries × vessel.size60+ &  &  &  &  &  & \num{0.087} &  &  \\
+&  &  &  &  &  & (\num{0.017}) &  &  \\
+avg.species &  &  &  &  &  &  & \num{0.123} &  \\
+&  &  &  &  &  &  & (\num{0.009}) &  \\
+avg.species × vessel.size20-39 &  &  &  &  &  &  &  & \num{0.129} \\
+&  &  &  &  &  &  &  & (\num{0.013}) \\
+avg.species × vessel.size40-59 &  &  &  &  &  &  &  & \num{0.125} \\
+&  &  &  &  &  &  &  & (\num{0.010}) \\
+avg.species × vessel.size60+ &  &  &  &  &  &  &  & \num{0.102} \\
+&  &  &  &  &  &  &  & (\num{0.021}) \\
+Num.Obs. & \num{165213} & \num{165213} & \num{160964} & \num{160964} & \num{40274} & \num{40274} & \num{40274} & \num{40274} \\
+R2 & \num{0.728} & \num{0.721} & \num{0.731} & \num{0.724} & \num{0.543} & \num{0.543} & \num{0.543} & \num{0.543} \\
+R2 Adj. & \num{0.697} & \num{0.690} & \num{0.701} & \num{0.694} & \num{0.261} & \num{0.261} & \num{0.261} & \num{0.261} \\
+R2 Within & \num{0.163} & \num{0.142} & \num{0.168} & \num{0.147} & \num{0.007} & \num{0.007} & \num{0.008} & \num{0.008} \\
+R2 Within Adj. & \num{0.163} & \num{0.142} & \num{0.168} & \num{0.147} & \num{0.007} & \num{0.007} & \num{0.008} & \num{0.008} \\
+AIC & \num{170779.3} & \num{174966.6} & \num{167019.3} & \num{171004.5} & \num{86684.4} & \num{86687.6} & \num{86651.0} & \num{86651.8} \\
+BIC & \num{337148.4} & \num{341335.6} & \num{327531.5} & \num{331516.7} & \num{218945.4} & \num{218965.8} & \num{218912.1} & \num{218930.0} \\
+RMSE & \num{0.37} & \num{0.37} & \num{0.37} & \num{0.37} & \num{0.48} & \num{0.48} & \num{0.48} & \num{0.48} \\
+Std.Errors & by: CFEC.Vessel.Owner.Filing.Number & by: CFEC.Vessel.Owner.Filing.Number & by: CFEC.Vessel.Owner.Filing.Number & by: CFEC.Vessel.Owner.Filing.Number & by: CFEC.Vessel.Owner.Filing.Number & by: CFEC.Vessel.Owner.Filing.Number & by: CFEC.Vessel.Owner.Filing.Number & by: CFEC.Vessel.Owner.Filing.Number \\
+FE: CFEC.Vessel.Owner.Filing.Number & X & X & X & X & X & X & X & X \\
+FE: period &  &  &  &  & X & X & X & X \\
+FE: Batch.Year & X & X & X & X &  &  &  &  \\
+\bottomrule
+\end{tblr}
+\end{table}

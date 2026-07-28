@@ -1,0 +1,33 @@
+
+\begingroup
+\centering
+\begin{tabular}{lcccc}
+   \tabularnewline \midrule \midrule
+   Dependent Variable: & \multicolumn{4}{c}{log(CV)}\\
+   Model:                                        & (1)           & (2)           & (3)           & (4)\\  
+   \midrule
+   \emph{Variables}\\
+   Long-run HHI ($H^{LR}$)                       & 0.5533$^{**}$ & 0.5548$^{**}$ & 0.5692$^{**}$ & 0.5104$^{**}$\\   
+                                                 & (0.0730)      & (0.0695)      & (0.0669)      & (0.0696)\\   
+   Effort Effect ($\overline{H}^E$)              & 1.134$^{**}$  & 1.092$^{***}$ &               &   \\   
+                                                 & (0.1867)      & (0.0506)      &               &   \\   
+   Productivity Effect ($\overline{H}^K$)        & -0.0427       &               & 1.095$^{***}$ &   \\   
+                                                 & (0.2084)      &               & (0.0519)      &   \\   
+   Interaction Effect ($\overline{	ext{INT}}$)  &               &               &               & -1.057$^{***}$\\   
+                                                 &               &               &               & (0.0520)\\   
+   \midrule
+   \emph{Fixed-effects}\\
+   CFEC.Vessel.Owner.Filing.Number               & Yes           & Yes           & Yes           & Yes\\  
+   period                                        & Yes           & Yes           & Yes           & Yes\\  
+   \midrule
+   \emph{Fit statistics}\\
+   Observations                                  & 17,639        & 17,639        & 17,639        & 17,639\\  
+   Within R$^2$                                  & 0.07930       & 0.07930       & 0.07730       & 0.07565\\  
+   RMSE                                          & 0.39720       & 0.39720       & 0.39763       & 0.39798\\  
+   \midrule \midrule
+   \multicolumn{5}{l}{\emph{Clustered (CFEC.Vessel.Owner.Filing.Number \& period) standard-errors in parentheses}}\\
+   \multicolumn{5}{l}{\emph{Signif. Codes: ***: 0.01, **: 0.05, *: 0.1}}\\
+\end{tabular}
+\par\endgroup
+
+

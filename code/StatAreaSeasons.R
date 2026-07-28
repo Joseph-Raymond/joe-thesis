@@ -29,6 +29,7 @@ combined_data <- readRDS(file.path("intermediate data", "combined_data_20250625_
   trip.data <- trip.data %>% mutate(trip.duration=ifelse(trip.duration>=0,trip.duration, NA))#these trips have trip-date entry errors. Not throwing out the data for now but indicating the error by replacing any trips with negative trip duration as NA; going out and back the same day should lead to trip duration = 1
 }
 
+
 permit.owner.info <- trip.data %>%
   group_by(Batch.Year, CFEC.Permit.Holder.Filing.Number, CFEC.Permit.Fishery) %>% 
   summarise(num.stat.areas = n_distinct(Statistical.Area),
@@ -46,6 +47,64 @@ permit.owner.info <- trip.data %>%
   mutate(num.fisheries = n_distinct(CFEC.Permit.Fishery), owner.year.revenue = sum(year.revenue, na.rm = TRUE))
 
 
+# active years per owner–period (years with positive owner revenue)
+active_years <- vessel.owner.info %>%
+  filter(is.finite(owner.year.revenue), owner.year.revenue > 0) %>%
+  distinct(CFEC.Vessel.Owner.Filing.Number, period, Batch.Year) %>%
+  count(CFEC.Vessel.Owner.Filing.Number, period, name = "num.active.years")
+
+# ---- Equal-weighted long-run average shares across ACTIVE years ----
+avg_share <- vessel.owner.info %>%
+  filter(is.finite(owner.year.revenue), owner.year.revenue > 0) %>%
+  group_by(CFEC.Vessel.Owner.Filing.Number, period, Permit.Fishery) %>%
+  summarise(
+    sum_share = sum(fishery.annual.share, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  left_join(active_years, by = c("CFEC.Vessel.Owner.Filing.Number","period")) %>%
+  mutate(avg.fishery.share = sum_share / num.active.years)
+
+# Long-run HHI = sum_j (avg share_j)^2
+lr_tbl <- avg_share %>%
+  group_by(CFEC.Vessel.Owner.Filing.Number, period) %>%
+  summarise(lr.hhi = sum(avg.fishery.share^2, na.rm = TRUE), .groups = "drop")
+
+# ---- Avg annual HHI (equal-weighted across ACTIVE years) ----
+Hbar_tbl <- vessel.owner.info %>%
+  filter(is.finite(owner.year.revenue), owner.year.revenue > 0) %>%
+  group_by(CFEC.Vessel.Owner.Filing.Number, period, Batch.Year) %>%
+  summarise(H_t = sum(fishery.annual.share^2, na.rm = TRUE), .groups = "drop") %>%
+  group_by(CFEC.Vessel.Owner.Filing.Number, period) %>%
+  summarise(avg_annual_hhi = mean(H_t), .groups = "drop")
+
+# ---- CV using ONE row per (owner, year) ----
+owner_year_totals <- vessel.owner.info %>%
+  filter(is.finite(owner.year.revenue), owner.year.revenue > 0) %>%
+  distinct(CFEC.Vessel.Owner.Filing.Number, period, Batch.Year, owner.year.revenue,
+           num.fisheries, Vessel.Length)  # keep per-year attributes if you need means later
+
+cv_tbl <- owner_year_totals %>%
+  group_by(CFEC.Vessel.Owner.Filing.Number, period) %>%
+  summarise(
+    CV = sd(owner.year.revenue, na.rm = TRUE) / mean(owner.year.revenue, na.rm = TRUE),
+    avg.fisheries = mean(num.fisheries, na.rm = TRUE),
+    max.vessel.length = max(Vessel.Length, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# ---- Assemble final owner–period table with size bins ----
+vessel.owner.period <- cv_tbl %>%
+  left_join(lr_tbl,     by = c("CFEC.Vessel.Owner.Filing.Number","period")) %>%
+  left_join(Hbar_tbl,   by = c("CFEC.Vessel.Owner.Filing.Number","period")) %>%
+  mutate(
+    rot_var = avg_annual_hhi - lr.hhi,
+    vessel.size = case_when(
+      max.vessel.length < 40 ~ "20-39",
+      max.vessel.length < 60 ~ "40-59",
+      TRUE                   ~ "60+"
+    ),
+    vessel.size = factor(vessel.size, levels = c("20-39","40-59","60+"))
+  )
 
 stat_area_plot("B 06B")
 stat_area_plot("S 03T")
@@ -71,7 +130,7 @@ prev_areas <- trip.data %>%
   distinct(CFEC.Permit.Holder.Filing.Number, CFEC.Permit.Fishery, Batch.Year, Statistical.Area) %>%
   mutate(matched = TRUE)  # Add explicit flag to detect matches
 
-# Step 2: Left join using *the same* column names
+# Step 2: Left join using same column names
 trip.data <- trip.data %>%
   left_join(prev_areas,
             by = c("CFEC.Permit.Holder.Filing.Number",
