@@ -76,15 +76,18 @@ print(xtable(table1, caption = "Panel summary statistics", label = "tab:ch3-tabl
 # Table 2. Data-quality diagnostics
 # ============================================================================
 # match_diag was built in 01_build_panel.R. Renamed here for the table only.
+# Plain named-vector lookup rather than case_match()/recode(), both of which
+# have been through dplyr lifecycle churn, this has no lifecycle to churn.
+metric_labels <- c(
+  ticket_serial_match_rate            = "Fish tickets whose permit serial matches the CFEC register",
+  share_permits_missing_vessel_id     = "Permit register rows with no vessel ID (NA, 0, or 99999)",
+  share_revenue_zero_filled           = "Fish ticket rows with CFEC.Value..Detail. filled from NA to 0",
+  share_zero_fill_has_positive_pounds = "Of those zero-filled rows, share with positive Pounds..Detail. (real landing, price just missing)"
+)
 
 table2 <- match_diag %>%
   mutate(
-    label = case_match(metric,
-      "ticket_serial_match_rate"        ~ "Fish tickets whose permit serial matches the CFEC register",
-      "share_permits_missing_vessel_id" ~ "Permit register rows with no vessel ID (NA, 0, or 99999)",
-      "share_revenue_zero_filled"       ~ "Fish ticket rows with CFEC.Value..Detail. filled from NA to 0",
-      "share_zero_fill_has_positive_pounds" ~ "Of those zero-filled rows, share with positive Pounds..Detail. (real landing, price just missing)"
-    ),
+    label = unname(metric_labels[metric]),
     value = round(value, 4)
   ) %>%
   select(Diagnostic = label, Value = value)
