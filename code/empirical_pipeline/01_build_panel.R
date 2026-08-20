@@ -138,12 +138,20 @@ fished_vessel_fishery_year <- catch_data_temp %>%
 # 3. Match-rate diagnostics (feeds Table 2, 02_table1_table2.R)
 # ============================================================================
 
-# Ticket-to-register match rate, permit serials on fish tickets that fail to
-# match the CFEC permit register. permit_link.R flags this same quantity via
-# CFEC.Permit.Serial.Number being NA and notes it skews out-of-state.
+# Ticket-to-register match rate, the share of fish ticket rows whose
+# (Vessel.ADFG.Number, Batch.Year, CFEC.Permit.Serial.Number) actually joins
+# to a real row in permit_register. NOT the same as CFEC.Permit.Serial.Number
+# being non-missing on the ticket, on real data that field turned out to be
+# populated on every single row, so mean(!is.na(...)) is guaranteed to read
+# exactly 1.0 regardless of true match quality, it was measuring field
+# completeness, not register matching. permit_link.R's comment about
+# unmatched serials skewing out-of-state is about this join failing, not
+# about the ticket field being blank. semi_join is a hash join, this is
+# efficient even at ~16M ticket rows.
 ticket_serial_match_rate <- catch_data_temp %>%
-  summarise(match_rate = mean(!is.na(CFEC.Permit.Serial.Number))) %>%
-  pull(match_rate)
+  select(Vessel.ADFG.Number, Batch.Year, CFEC.Permit.Serial.Number) %>%
+  semi_join(permit_register, by = c("Vessel.ADFG.Number", "Batch.Year", "CFEC.Permit.Serial.Number")) %>%
+  nrow() / nrow(catch_data_temp)
 
 match_diag <- tibble(
   metric = c(
