@@ -82,7 +82,8 @@ table2 <- match_diag %>%
     label = case_match(metric,
       "ticket_serial_match_rate"        ~ "Fish tickets whose permit serial matches the CFEC register",
       "share_permits_missing_vessel_id" ~ "Permit register rows with no vessel ID (NA, 0, or 99999)",
-      "share_revenue_zero_filled"       ~ "Fish ticket rows with CFEC.Value..Detail. filled from NA to 0"
+      "share_revenue_zero_filled"       ~ "Fish ticket rows with CFEC.Value..Detail. filled from NA to 0",
+      "share_zero_fill_has_positive_pounds" ~ "Of those zero-filled rows, share with positive Pounds..Detail. (real landing, price just missing)"
     ),
     value = round(value, 4)
   ) %>%

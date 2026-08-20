@@ -22,13 +22,22 @@ owner_year_valid <- owner_year %>% filter(n.held.fishery > 0)
 
 table3 <- owner_year_valid %>%
   summarise(
-    `Mean unused count share, with unmatched permits`      = mean(unused.count.share, na.rm = TRUE),
-    `Mean unused count share, without unmatched permits`   = mean(unused.count.share.matched, na.rm = TRUE),
-    `Mean unused value share, with unmatched permits`      = mean(unused.value.share, na.rm = TRUE),
-    `Mean unused value share, without unmatched permits`   = mean(unused.value.share.matched, na.rm = TRUE),
-    `Mean permits held per owner-year, with unmatched`     = mean(n.held.fishery, na.rm = TRUE),
-    `Mean permits held per owner-year, without unmatched`  = mean(n.held.fishery.matched, na.rm = TRUE),
-    `Owner-years in sample`                                = n()
+    `Mean unused count share, with unmatched permits`             = mean(unused.count.share, na.rm = TRUE),
+    `Mean unused count share, without unmatched permits`          = mean(unused.count.share.matched, na.rm = TRUE),
+    # Fishery-class vs permit-serial granularity, held constant at "with
+    # unmatched permits" (owner-inclusive) since that is the version
+    # 01_build_panel.R builds a permit-serial count for. See
+    # NOTES_prior_prototype.md for why this comparison matters, a vessel or
+    # owner that stacks two serials of the same Fishery and fishes only one
+    # looks fully used at the fishery-class level but has one idle permit at
+    # the serial level.
+    `Mean unused count share, permit-serial level`                = mean(unused.count.share.permit, na.rm = TRUE),
+    `Mean unused value share, with unmatched permits`              = mean(unused.value.share, na.rm = TRUE),
+    `Mean unused value share, without unmatched permits`           = mean(unused.value.share.matched, na.rm = TRUE),
+    `Mean permits held per owner-year, with unmatched (fishery)`   = mean(n.held.fishery, na.rm = TRUE),
+    `Mean permits held per owner-year, without unmatched (fishery)` = mean(n.held.fishery.matched, na.rm = TRUE),
+    `Mean permits held per owner-year, permit-serial level`        = mean(n.held.permit, na.rm = TRUE),
+    `Owner-years in sample`                                        = n()
   ) %>%
   pivot_longer(everything(), names_to = "Statistic", values_to = "Value") %>%
   mutate(Value = round(Value, 4))
@@ -41,6 +50,13 @@ print(table3, n = Inf)
 gap_count <- table3$Value[table3$Statistic == "Mean unused count share, with unmatched permits"] -
              table3$Value[table3$Statistic == "Mean unused count share, without unmatched permits"]
 cat("Understatement from dropping vessel-unmatched permits, count share:", round(gap_count, 4), "\n")
+
+# The permit-stacking gap, how much unused.count.share (fishery-class)
+# understates unused.count.share.permit (serial-level) purely from
+# collapsing stacked same-Fishery permits into one held/fished fact.
+gap_stacking <- table3$Value[table3$Statistic == "Mean unused count share, permit-serial level"] -
+                table3$Value[table3$Statistic == "Mean unused count share, with unmatched permits"]
+cat("Understatement from fishery-class collapsing (permit stacking), count share:", round(gap_stacking, 4), "\n")
 
 print(xtable(table3, caption = "Held-versus-fished wedge, with and without permits missing a vessel identifier",
              label = "tab:ch3-table3"),

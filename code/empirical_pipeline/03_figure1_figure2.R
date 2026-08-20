@@ -1,6 +1,7 @@
 # Chapter 3 empirical pipeline, Chapter3_outline.md Section 3
 #
-# Figure 1. Fleet-wide time series of the mean unused share (count and value).
+# Figure 1. Fleet-wide time series of the mean unused share (count, value,
+#           and a permit-serial-level count that is stacking-aware).
 # Figure 2. Distribution of the unused share across vessels, by gear class
 #           and vessel length.
 #
@@ -18,12 +19,20 @@ if (!exists("vessel_year")) load(panel_path)
 # Figure 1. Fleet-wide unused share over time (count and value)
 # ============================================================================
 
+# Count share (fishery-class) vs count share (permit-serial) is the direct
+# comparison for the permit-stacking decision, see NOTES_prior_prototype.md.
+# The fishery-class version collapses a vessel's stacked permits within one
+# Fishery code (e.g. two "S03T" serials) into a single held/fished fact, so
+# it reads unused.count.share.permit >= unused.count.share whenever stacking
+# is present, since the permit-serial version can see an idle second serial
+# that the fishery-class version cannot.
 fig1_data <- vessel_year %>%
   filter(n.held.fishery > 0) %>%
   group_by(Batch.Year) %>%
   summarise(
-    `Count share`   = mean(unused.count.share, na.rm = TRUE),
-    `Value share`   = mean(unused.value.share, na.rm = TRUE),
+    `Count share (fishery-class)` = mean(unused.count.share, na.rm = TRUE),
+    `Count share (permit-serial)` = mean(unused.count.share.permit, na.rm = TRUE),
+    `Value share`                 = mean(unused.value.share, na.rm = TRUE),
     .groups = "drop"
   ) %>%
   pivot_longer(-Batch.Year, names_to = "measure", values_to = "mean_unused_share")
@@ -33,7 +42,7 @@ figure1 <- fig1_data %>%
   geom_line(linewidth = 0.8) +
   labs(
     title = "Mean unused share of held permits, fleet-wide",
-    subtitle = "Count share: permits held but not fished, over permits held. Value share: fleet-mean forgone revenue over forgone-plus-fished value.",
+    subtitle = "Count share: permits held but not fished, over permits held, shown at the fishery-class and permit-serial level.\nValue share: fleet-mean forgone revenue over forgone-plus-fished value.",
     x = "Year", y = "Mean unused share", color = NULL
   ) +
   scale_color_brewer(palette = "Set1") +

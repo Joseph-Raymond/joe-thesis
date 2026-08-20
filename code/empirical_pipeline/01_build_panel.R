@@ -1,11 +1,18 @@
 # Chapter 3 empirical pipeline, panel construction
 #
 # Builds the one reproducible panel that Chapter3_outline.md Sections 2-4
-# read from (chapter3_plan.md Section 7, "Phase 1"). Everything is built at
-# the Fishery-class level (e.g. "S03T"), matching how permit_link.R already
-# computes HHI and the fished/unfished counts, not at the individual permit
-# serial level (a vessel can hold more than one serial of the same Fishery
-# class, "permit stacking", and that is deliberately collapsed here).
+# read from (chapter3_plan.md Section 7, "Phase 1"). The share-based objects
+# (H_bar, H_LR, Phi, vessel_mean_share) are built at the Fishery-class level
+# (e.g. "S03T"), matching how permit_link.R already computes HHI, since a
+# revenue share is inherently per fishery, not per permit. The permit-COUNT
+# objects (unused.count.share and friends) are built BOTH at the
+# Fishery-class level and, separately, at the individual permit-serial
+# level, since a vessel holding two serials of the same Fishery class
+# ("permit stacking") and fishing only one looks fully used at the
+# fishery-class level but has one idle permit at the serial level. Both
+# versions are carried side by side in vessel_year/owner_year
+# (*.permit-suffixed columns are the serial-level version) rather than
+# picking one, see NOTES_prior_prototype.md for how this was decided.
 #
 # Reuses the cleaning steps in code/Permit_Linking/permit_link.R lines 17-21
 # and code/data load module.R's catch_data_temp block, but keeps a copy of
@@ -14,9 +21,15 @@
 # vessel attached.
 #
 # Saves intermediate data/ch3_panel.rdata with these objects.
-#   vessel_fishery_year  long panel, one row per vessel x year x fishery
+#   vessel_fishery_year   long panel, one row per vessel x year x fishery
 #   vessel_year           one row per vessel x year
-#   vessel_summary         one row per vessel, collapsed over its active years
+#   vessel_share_panel    long panel, one row per vessel x year x fishery,
+#                          realized revenue share only, active years only,
+#                          zero-filled for a fishery the vessel fished in some
+#                          other year of its own panel but not this one
+#   vessel_mean_share     one row per vessel x fishery, share averaged over
+#                          the vessel's active years (the H_LR weight vector)
+#   vessel_summary        one row per vessel, collapsed over its active years
 #   owner_fishery_year, owner_year, owner_summary   same three at the
 #                                                     File.Number (owner) level
 #   match_diag             data-quality diagnostics for Table 2
@@ -84,6 +97,19 @@ catch_data_temp$Vessel.ADFG.Number <- as.integer(catch_data_temp$Vessel.ADFG.Num
 # diagnostic would trivially read 0 no matter how much revenue was missing.
 share_revenue_zero_filled <- mean(is.na(catch_data_temp[["CFEC.Value..Detail."]]))
 
+# Whether the rows about to be zero-filled look like real landings with an
+# unrecorded price (positive landed weight), rather than genuinely empty
+# rows. Answers a specific question about whether zero-filling is neutral or
+# whether it manufactures false zeros, see the match_diag block below for
+# how this reads. CHECK Pounds..Detail. is the right weight field,
+# chapter3_plan.md Section 1 also lists Whole.Pounds..Detail. and
+# CFEC.Whole.Pounds..Detail. as alternatives worth checking if this one is
+# not present or does not behave as expected.
+share_zero_fill_has_positive_pounds <- catch_data_temp %>%
+  filter(is.na(CFEC.Value..Detail.)) %>%
+  summarise(share = mean(Pounds..Detail. > 0, na.rm = TRUE)) %>%
+  pull(share)
+
 catch_data_temp[["CFEC.Value..Detail."]][is.na(catch_data_temp[["CFEC.Value..Detail."]])] <- 0
 
 catch_data_temp <- catch_data_temp %>%
@@ -95,7 +121,16 @@ fished_vessel_fishery_year <- catch_data_temp %>%
   group_by(Vessel.ADFG.Number, Batch.Year, Fishery) %>%
   summarise(
     revenue      = sum(CFEC.Value..Detail., na.rm = TRUE),
-    File.Number  = first(CFEC.Vessel.Owner.Filing.Number),
+    # File.Number here must be the PERMIT HOLDER's filing number
+    # (CFEC.Permit.Holder.Filing.Number), not the vessel owner's
+    # (CFEC.Vessel.Owner.Filing.Number). The owner-level panel below joins
+    # this to held_owner_fishery, which is keyed on the permit register's own
+    # File.Number, i.e. the permit holder. The permit holder and the vessel
+    # owner are not always the same person, so joining on the vessel-owner ID
+    # would silently misattribute fished revenue whenever they differ. CHECK
+    # this field name against real headers, chapter3_plan.md Section 1 lists
+    # it but it has not been confirmed on the server.
+    File.Number  = first(CFEC.Permit.Holder.Filing.Number),
     .groups = "drop"
   )
 
@@ -114,12 +149,14 @@ match_diag <- tibble(
   metric = c(
     "ticket_serial_match_rate",
     "share_permits_missing_vessel_id",
-    "share_revenue_zero_filled"
+    "share_revenue_zero_filled",
+    "share_zero_fill_has_positive_pounds"
   ),
   value = c(
     ticket_serial_match_rate,
     mean(!permit_register_raw$has.vessel.id),
-    share_revenue_zero_filled
+    share_revenue_zero_filled,
+    share_zero_fill_has_positive_pounds
   )
 )
 print(match_diag)
@@ -161,6 +198,71 @@ vessel_fishery_year <- vessel_fishery_year %>%
   left_join(fleet_mean_revenue, by = c("Batch.Year", "Fishery"))
 
 # ============================================================================
+# 4b. Vessel x permit-serial x year panel (permit-stacking-aware alternative)
+# ============================================================================
+#
+# Everything above tracks held/fished at the Fishery-class level (e.g. all of
+# a vessel's "S03T" permits collapse into one held/fished fact). That is the
+# only sensible unit for anything share-based (H_bar, H_LR, Phi), but it can
+# understate the unused-permit count for a vessel that "stacks" permits,
+# holds two serials of the same Fishery class and fishes only one. This
+# section rebuilds the permit-COUNT objects (not the share objects) at the
+# individual permit-serial level instead, so Figure 1 and Table 3 can show
+# both versions side by side rather than picking one. See
+# NOTES_prior_prototype.md for why this was left open rather than decided.
+
+# How common stacking actually is, checked directly rather than assumed.
+# If this comes back near zero, the two versions below will barely differ
+# and the simpler Fishery-class view is fine to lead with in the writeup.
+stacking_check <- permit_register %>%
+  count(Vessel.ADFG.Number, Batch.Year, Fishery, name = "n.serials") %>%
+  filter(n.serials > 1)
+cat("Vessel-fishery-years with more than one held permit serial (stacking):",
+    nrow(stacking_check), "\n")
+
+held_vessel_permit <- permit_register %>%
+  distinct(Vessel.ADFG.Number, Batch.Year, Fishery, CFEC.Permit.Serial.Number) %>%
+  mutate(held = TRUE)
+
+# Landings with no matched permit serial (NA) cannot be attributed to a
+# specific held permit and are dropped here, unlike the Fishery-class
+# version above, which never needed the serial number at all since it is
+# built straight off CFEC.Permit.Fishery. That gap is already tracked by
+# ticket_serial_match_rate in match_diag, not double-counted as new missingness.
+# File.Number here is the permit holder's filing number, same reasoning as
+# fished_vessel_fishery_year above, kept so Table 3's owner-level comparison
+# (Section 7) can reuse this at the permit-serial level too, not just Figure
+# 1's vessel-level comparison.
+fished_vessel_permit_year <- catch_data_temp %>%
+  filter(!is.na(CFEC.Permit.Serial.Number)) %>%
+  group_by(Vessel.ADFG.Number, Batch.Year, Fishery, CFEC.Permit.Serial.Number) %>%
+  summarise(
+    revenue = sum(CFEC.Value..Detail., na.rm = TRUE),
+    File.Number = first(CFEC.Permit.Holder.Filing.Number),
+    .groups = "drop"
+  )
+
+vessel_permit_year <- held_vessel_permit %>%
+  full_join(fished_vessel_permit_year,
+            by = c("Vessel.ADFG.Number", "Batch.Year", "Fishery", "CFEC.Permit.Serial.Number")) %>%
+  mutate(
+    held   = replace_na(held, FALSE),
+    fished = !is.na(revenue) & revenue > 0
+  )
+
+vessel_year_permit_level <- vessel_permit_year %>%
+  group_by(Vessel.ADFG.Number, Batch.Year) %>%
+  summarise(
+    n.held.permit     = sum(held),
+    n.fished.permit   = sum(held & fished),
+    n.unfished.permit = sum(held & !fished),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    unused.count.share.permit = if_else(n.held.permit > 0, n.unfished.permit / n.held.permit, NA_real_)
+  )
+
+# ============================================================================
 # 5. Vessel-year summary (Figure 1, Figure 2, Table 3 inputs)
 # ============================================================================
 
@@ -183,9 +285,15 @@ vessel_year <- vessel_fishery_year %>%
     unused.count.share = if_else(n.held.fishery > 0, n.unfished.fishery / n.held.fishery, NA_real_),
     unused.value.share = if_else((forgone.value + fished.value) > 0,
                                   forgone.value / (forgone.value + fished.value), NA_real_)
-  )
+  ) %>%
+  # Adds the permit-serial-level count columns from Section 4b alongside the
+  # Fishery-class-level ones above, unused.count.share (fishery-class) versus
+  # unused.count.share.permit (serial-level) are the two versions to compare.
+  left_join(vessel_year_permit_level, by = c("Vessel.ADFG.Number", "Batch.Year"))
 
 cat("vessel_year rows:", nrow(vessel_year), "\n")
+cat("Mean unused.count.share (fishery-class):", round(mean(vessel_year$unused.count.share, na.rm = TRUE), 4),
+    " vs (permit-serial):", round(mean(vessel_year$unused.count.share.permit, na.rm = TRUE), 4), "\n")
 
 # ============================================================================
 # 6. Vessel summary (Table 4, Figure 3 inputs), Hbar/H_LR/Phi/CV
@@ -308,6 +416,33 @@ fleet_mean_revenue_owner <- owner_fishery_year %>%
 owner_fishery_year <- owner_fishery_year %>%
   left_join(fleet_mean_revenue_owner, by = c("Batch.Year", "Fishery"))
 
+# Owner-level permit-serial counts, the Table 3 analogue of Section 4b's
+# vessel-level permit-stacking check. Owner-inclusive ("with" version) only,
+# matching held_owner_fishery above, not crossed with the matched/unmatched
+# vessel-ID split, that would be a four-way comparison for a question this
+# pipeline has not been asked to resolve yet.
+held_owner_permit <- permit_register_raw %>%
+  filter(!is.na(File.Number)) %>%
+  distinct(File.Number, Batch.Year, Fishery, CFEC.Permit.Serial.Number) %>%
+  mutate(held = TRUE)
+
+fished_owner_permit_year <- fished_vessel_permit_year %>%
+  filter(!is.na(File.Number)) %>%
+  group_by(File.Number, Batch.Year, Fishery, CFEC.Permit.Serial.Number) %>%
+  summarise(revenue = sum(revenue, na.rm = TRUE), .groups = "drop")
+
+owner_year_permit_level <- held_owner_permit %>%
+  full_join(fished_owner_permit_year,
+            by = c("File.Number", "Batch.Year", "Fishery", "CFEC.Permit.Serial.Number")) %>%
+  mutate(held = replace_na(held, FALSE), fished = !is.na(revenue) & revenue > 0) %>%
+  group_by(File.Number, Batch.Year) %>%
+  summarise(
+    n.held.permit     = sum(held),
+    n.unfished.permit = sum(held & !fished),
+    .groups = "drop"
+  ) %>%
+  mutate(unused.count.share.permit = if_else(n.held.permit > 0, n.unfished.permit / n.held.permit, NA_real_))
+
 owner_year <- owner_fishery_year %>%
   group_by(File.Number, Batch.Year) %>%
   summarise(
@@ -333,7 +468,12 @@ owner_year <- owner_fishery_year %>%
                                           n.unfished.fishery.matched / n.held.fishery.matched, NA_real_),
     unused.value.share.matched = if_else((forgone.value.matched + fished.value) > 0,
                                           forgone.value.matched / (forgone.value.matched + fished.value), NA_real_)
-  )
+  ) %>%
+  left_join(owner_year_permit_level, by = c("File.Number", "Batch.Year"))
+
+cat("Mean owner-level unused.count.share (fishery-class):",
+    round(mean(owner_year$unused.count.share, na.rm = TRUE), 4),
+    " vs (permit-serial):", round(mean(owner_year$unused.count.share.permit, na.rm = TRUE), 4), "\n")
 
 active_owner_years <- owner_year %>% filter(owner.year.rev > 0) %>%
   select(File.Number, Batch.Year, owner.year.rev)
@@ -375,7 +515,7 @@ cat("owner_summary rows:", nrow(owner_summary),
 # ============================================================================
 
 save(
-  vessel_fishery_year, vessel_year, vessel_summary, vessel_mean_share,
+  vessel_fishery_year, vessel_year, vessel_summary, vessel_mean_share, vessel_share_panel,
   owner_fishery_year, owner_year, owner_summary,
   match_diag, fleet_mean_revenue,
   file = panel_path

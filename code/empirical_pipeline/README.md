@@ -66,7 +66,14 @@ Phi` decomposition. This pipeline
   (`chapter3_plan.md` Section 9.2 flags this as a live inconsistency in the
   existing code), and
 - adds the passive buy-and-hold benchmark (Figure 3), which does not exist
-  anywhere in `Chpt3/code/`.
+  anywhere in `Chpt3/code/`, and
+- links the owner-level held and fished panels on the permit holder's own ID
+  (`File.Number` from the permit register, matched to
+  `CFEC.Permit.Holder.Filing.Number` on fish tickets), not the vessel
+  owner's ID (`CFEC.Vessel.Owner.Filing.Number`). The two are not always the
+  same person, and an earlier version of this pipeline used the vessel-owner
+  field by mistake, which would have misattributed fished revenue to the
+  wrong owner whenever a permit holder fishes on a vessel they do not own.
 
 ## Design choices worth reviewing before trusting the output
 
@@ -79,10 +86,19 @@ point it is made in the code.
   vessel to be a vessel-year row for, so the vessel-level panel can never
   include it. The owner is the only unit that can hold it at all.
 - **Held and fished sets are defined at the Fishery-class level** (e.g.
-  `"S03T"`), not the individual permit serial level, matching how
-  `permit_link.R` already computes HHI. A vessel holding two serials of the
-  same Fishery class ("permit stacking") counts as holding that fishery
-  once.
+  `"S03T"`) for every share-based object (`H_bar`, `H_LR`, `Phi`,
+  `vessel_mean_share`), matching how `permit_link.R` already computes HHI, a
+  share is inherently per fishery. The permit-COUNT objects are built at
+  BOTH the Fishery-class level and the individual permit-serial level (see
+  Section 4b/Section 7 of `01_build_panel.R`), so `unused.count.share` and
+  `unused.count.share.permit` sit side by side in `vessel_year`/`owner_year`
+  and Figure 1 plots both. A vessel holding two serials of the same Fishery
+  class ("permit stacking") counts as holding that fishery once under the
+  first, but has one idle permit under the second. `01_build_panel.R` prints
+  a direct stacking-frequency check (`stacking_check`) and the mean gap
+  between the two count shares the first time it runs, worth reading before
+  deciding whether the gap is big enough to lead with the permit-serial
+  version in the writeup rather than treating it as a robustness footnote.
 - **Figure 2's gear class comes from the CFEC vessel register's own gear
   dummy columns**, not from the fishery code's gear digits, and picks a
   vessel's single modal gear class across its panel. A vessel rigged for more
@@ -111,3 +127,25 @@ point it is made in the code.
   Section 4 never specifies. Vessel-level controls (length, etc.) first show
   up in Section 6 of the outline: add them here once a control set is
   chosen.
+- **Zero-filling `CFEC.Value..Detail.` is not assumed neutral, it is
+  checked.** `match_diag`'s `share_zero_fill_has_positive_pounds` reports
+  what fraction of the zero-filled rows have positive `Pounds..Detail.`,
+  i.e. look like real landings with an unrecorded price rather than
+  genuinely empty rows. A high value there means the zero-fill is
+  manufacturing false zeros that mechanically inflate measured HHI (shares
+  are convex in revenue), not just adding noise, see
+  `NOTES_prior_prototype.md` for the full mechanism. This pipeline does not
+  yet act on that diagnostic (e.g. by imputing a fishery-year median price
+  for those rows), it only measures the problem.
+- **Two different CFEC filing-number fields exist and mean different
+  things**, `File.Number` in the permit register (and
+  `CFEC.Permit.Holder.Filing.Number` on fish tickets) identify the *permit
+  holder*, while `CFEC.Vessel.Owner.Filing.Number` on fish tickets identifies
+  the *vessel owner*. `01_build_panel.R`'s owner-level panel uses the permit
+  holder consistently on both the held and fished side, since Table 3
+  specifically needs to attribute permits with no vessel attached to
+  somebody, and there is no vessel owner to speak of in that case. The
+  vessel-owner field is not currently used anywhere in this pipeline, it
+  would matter for a genuinely different question (5E in
+  `chapter3_plan.md`, multi-vessel owners), not for the permit-holder wedge
+  Sections 2-4 build.
