@@ -93,7 +93,12 @@ table2 <- match_diag %>%
   select(Diagnostic = label, Value = value)
 
 print(table2)
-print(xtable(table2, caption = "Data quality diagnostics", label = "tab:ch3-table2"),
+# digits = c(0, 0, 4): first slot is xtable's implicit row-name column
+# (irrelevant, rownames are dropped below), second is Diagnostic (character,
+# ignored), third is Value. Without this xtable defaults to 2 decimals,
+# which is fine for 0.96/0.28/0.87 but flattens share_revenue_zero_filled
+# from 0.0073 to a misleading 0.01.
+print(xtable(table2, caption = "Data quality diagnostics", label = "tab:ch3-table2", digits = c(0, 0, 4)),
       file = file.path(table_dir, "table2_data_quality.tex"),
       include.rownames = FALSE)
 
