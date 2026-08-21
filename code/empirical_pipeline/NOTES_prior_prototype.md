@@ -109,7 +109,23 @@ evenly across fisheries or years, it is worth treating as a source of
 correlated measurement error in `H_bar`/`H_LR`, not just noise, since it
 would bias the vessel toward looking more specialized than it actually was.
 
-## A structural difference worth flagging, not necessarily fixing
+## Partially addressed: a period dimension now exists, but not the AFA one
+
+**Update:** `01_build_panel.R` now also builds `vessel_period_summary` and
+`owner_period_summary` (Sections 6b/7b), `H_bar`/`H_LR`/`Phi`/`rev.cv`
+computed separately within `N_PERIODS` (3, `00_setup.R`) roughly-equal
+calendar periods rather than over each vessel's whole active history. This
+is a different period definition than what is described below, three
+data-driven, roughly-equal-length periods with a 4-active-year-within-period
+minimum (`MIN_ACTIVE_YEARS_PERIOD`), not the prototype's two AFA-motivated
+periods split at 2004. It answers "how did concentration and instability
+differ across three eras of the panel" rather than "what changed around a
+specific policy date." Both are legitimate questions, this pipeline now has
+the general machinery (`period_of()`, the zero-fill-within-period pattern)
+to build an AFA-specific two-period version the same way if that turns out
+to still be wanted, it would mean copying Section 6b/7b with
+`N_PERIODS <- 2` and a hardcoded 2004 breakpoint instead of the
+data-driven one, not a large change.
 
 The prototype (and the original `permit_link.R`) split each vessel's panel
 into a pre/post-2004 period, one row per vessel-period, with period as a
@@ -117,14 +133,13 @@ second fixed effect alongside `prime.fishery`. That split was meant to mark
 the AFA (American Fisheries Act) policy change, not an arbitrary midpoint,
 per an earlier conversation about this comparison.
 
-This pipeline's `vessel_summary` collapses straight to one row per vessel
-across its whole active panel, with no period dimension at all. That is a
-reasonable simplification for now (the AFA split was flagged as something to
-"ignore for now" when this came up), but it is worth remembering that
-restoring it later means adding a period grouping variable back into the
-`vessel_summary`/`owner_summary` construction in `01_build_panel.R`, not
-just changing a constant in `00_setup.R`, since the current code was written
-assuming one cross-sectional row per vessel.
+`vessel_summary`/`owner_summary` themselves still collapse straight to one
+row per vessel/owner across the whole active panel, with no period
+dimension, that part of the original note still holds. The new
+`vessel_period_summary`/`owner_period_summary` objects sit alongside them
+rather than replacing them, and neither Table 4 nor Figure 3
+(`05_table4_figure3.R`) reads from the period-specific objects yet, nothing
+downstream has been built on top of this addition.
 
 ## Two smaller, still-open specification choices
 

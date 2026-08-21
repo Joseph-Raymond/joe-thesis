@@ -17,16 +17,24 @@ ssh -L localhost:8989:localhost:3389 jraymond@makena.ucdavis.edu
 # then connect to localhost:8989
 ```
 
-Nothing in this repo has executed these scripts. They were written by reading
-`code/Permit_Linking/permit_link.R`, `code/myfunctions.R`,
-`code/data load module.R`, `code/vessel_clean.R`, and
+These scripts were written by reading `code/Permit_Linking/permit_link.R`,
+`code/myfunctions.R`, `code/data load module.R`, `code/vessel_clean.R`, and
 `code/Permit_Variance.R` for column names and cleaning conventions, and by
 following `Chapter3_outline.md` and `chapter3_plan.md` for what each figure
-and table needs to show. Treat the first run as a debugging pass, not a
-victory lap. Search for "CHECK:" comments and read every script's header
-before trusting output, several column names and one file path are inferred
-rather than confirmed against real headers (`chapter3_plan.md` Section 1 says
-the same about the existing code).
+and table needs to show. `00_setup.R`, `01_build_panel.R`, and
+`02_table1_table2.R` have since been run against real data on the server and
+produced sane-looking output (see `match_diag`/Table 2's real numbers, a
+96% ticket-to-register match rate, 28% of permit register rows missing a
+vessel ID, 0.7% of ticket rows zero-filled, 87% of those zero-filled rows
+carrying positive landed weight), catching and fixing two real bugs along
+the way (`ticket_serial_match_rate` was measuring field completeness rather
+than an actual register join, and `case_match()` triggered a dplyr
+deprecation warning on the server's dplyr version). `03_figure1_figure2.R`
+through `05_table4_figure3.R` have not been run yet. Search for "CHECK:"
+comments and read every script's header before trusting output from those,
+several column names and one file path are inferred rather than confirmed
+against real headers (`chapter3_plan.md` Section 1 says the same about the
+existing code).
 
 ## Run order
 
@@ -43,6 +51,15 @@ Each of 02 through 05 loads `intermediate data/ch3_panel.rdata` if the panel
 objects are not already in memory, so they can be run independently in a
 fresh session as long as 01 has been run at least once. Outputs land in
 `Chpt3/output/tables/` (`.tex`, via `xtable` and `fixest::etable`) and
+`Chpt3/output/figures/` (`.png`, via `ggplot2`).
+
+`01_build_panel.R` also saves `vessel_period_summary`/`owner_period_summary`,
+`H_bar`/`H_LR`/`Phi`/`rev.cv` computed separately within three roughly-equal
+calendar periods (`N_PERIODS` in `00_setup.R`) rather than over each
+vessel/owner's whole active history, see Section 6b/7b of that script and
+`NOTES_prior_prototype.md`. Nothing in 02-05 reads from these yet, they are
+available for whichever downstream table or figure ends up using them.
+
 `Chpt3/output/figures/` (`.png`, via `ggplot2`).
 
 ## What is genuinely new here versus the existing `Chpt3/code/` scripts

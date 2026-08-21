@@ -30,8 +30,14 @@
 #   vessel_mean_share     one row per vessel x fishery, share averaged over
 #                          the vessel's active years (the H_LR weight vector)
 #   vessel_summary        one row per vessel, collapsed over its active years
+#   vessel_period_summary one row per vessel x calendar period (N_PERIODS,
+#                          default 3), H_bar/H_LR/Phi/rev.cv computed within
+#                          each period rather than over the whole panel
 #   owner_fishery_year, owner_year, owner_summary   same three at the
 #                                                     File.Number (owner) level
+#   owner_period_summary  owner-level analogue of vessel_period_summary
+#   period_bounds          the two period breakpoints actually used, computed
+#                          once from the observed year range, not hardcoded
 #   match_diag             data-quality diagnostics for Table 2
 #
 # Run 00_setup.R first (or just source it, which this script does).
@@ -320,14 +326,21 @@ cat("Mean unused.count.share (fishery-class):", round(mean(vessel_year$unused.co
 active_vessel_years <- vessel_year %>% filter(vessel.year.rev > 0) %>%
   select(Vessel.ADFG.Number, Batch.Year, vessel.year.rev)
 
-# group_by(Vessel.ADFG.Number) before complete() matters, it fills each
-# vessel's own ever-fished fishery set across its own years, not the union of
-# every fishery any vessel in the fleet ever fished.
-vessel_share_panel <- vessel_fishery_year %>%
+# Raw (not yet zero-filled) realized shares, active vessel-years only. Kept
+# as its own object because the period-specific decomposition below
+# zero-fills against this same base but grouped by (vessel, period) instead
+# of (vessel) alone, reusing the share computation without reusing the
+# whole-panel zero-fill.
+vessel_share_raw <- vessel_fishery_year %>%
   filter(fished) %>%
   inner_join(active_vessel_years, by = c("Vessel.ADFG.Number", "Batch.Year")) %>%
   mutate(share = revenue / vessel.year.rev) %>%
-  select(Vessel.ADFG.Number, Batch.Year, Fishery, share) %>%
+  select(Vessel.ADFG.Number, Batch.Year, Fishery, share)
+
+# group_by(Vessel.ADFG.Number) before complete() matters, it fills each
+# vessel's own ever-fished fishery set across its own years, not the union of
+# every fishery any vessel in the fleet ever fished.
+vessel_share_panel <- vessel_share_raw %>%
   group_by(Vessel.ADFG.Number) %>%
   complete(Fishery, Batch.Year, fill = list(share = 0)) %>%
   ungroup() %>%
@@ -381,6 +394,86 @@ vessel_summary <- vessel_summary %>%
 
 cat("vessel_summary rows:", nrow(vessel_summary),
     " meeting MIN_ACTIVE_YEARS =", MIN_ACTIVE_YEARS, ":", sum(vessel_summary$meets.min.years), "\n")
+
+# ============================================================================
+# 6b. Period-specific decomposition, H_bar/H_LR/Phi within three calendar
+#     periods rather than over each vessel's whole panel
+# ============================================================================
+#
+# Same H_bar/H_LR/Phi definitions as Section 6, but computed separately
+# within each of N_PERIODS (3) roughly-equal calendar periods, rather than
+# over a vessel's entire active history. The two period breakpoints are
+# computed once from the observed year range in the data (not hardcoded),
+# so the same two thresholds bucket every vessel, but they stay correct if
+# the panel's coverage changes.
+#
+# Zero-filling happens WITHIN each (vessel, period) group, not across a
+# vessel's whole panel, a fishery the vessel fished in Period 1 but not
+# Period 2 gets a zero share in Period 2's calculation, not a share pulled
+# in from Period 1. That is what makes H_LR/Phi here answer "how
+# concentrated/unstable was this vessel within this specific era," rather
+# than the whole-panel version's "how concentrated/unstable was this vessel
+# ever."
+
+year_min <- min(vessel_year$Batch.Year)
+year_max <- max(vessel_year$Batch.Year)
+n_years_total <- year_max - year_min + 1
+
+period_break_1 <- year_min + floor(n_years_total / N_PERIODS) - 1
+period_break_2 <- year_min + floor(2 * n_years_total / N_PERIODS) - 1
+
+period_bounds <- tibble(
+  period = c("Period 1", "Period 2", "Period 3"),
+  start  = c(year_min, period_break_1 + 1, period_break_2 + 1),
+  end    = c(period_break_1, period_break_2, year_max)
+)
+cat("Period boundaries (fixed for this run, computed from the observed year range):\n")
+print(period_bounds)
+
+period_of <- function(batch_year) {
+  case_when(
+    batch_year <= period_break_1 ~ "Period 1",
+    batch_year <= period_break_2 ~ "Period 2",
+    TRUE ~ "Period 3"
+  )
+}
+
+vessel_share_raw_period <- vessel_share_raw %>% mutate(period = period_of(Batch.Year))
+
+# complete() cannot introduce a (vessel, period, Batch.Year) combination that
+# was not already present in vessel_share_raw_period, the same reasoning as
+# the whole-panel version above (Section 6), it only cross-joins Fishery and
+# Batch.Year values that already exist within each (vessel, period) group.
+# No extra semi_join safety net needed here for the same reason it turned
+# out to be a no-op there.
+vessel_period_share_panel <- vessel_share_raw_period %>%
+  group_by(Vessel.ADFG.Number, period) %>%
+  complete(Fishery, Batch.Year, fill = list(share = 0)) %>%
+  ungroup()
+
+vessel_period_summary <- vessel_period_share_panel %>%
+  group_by(Vessel.ADFG.Number, period, Fishery) %>%
+  mutate(mean.share.fishery = mean(share)) %>%
+  group_by(Vessel.ADFG.Number, period) %>%
+  summarise(
+    n.years.period = n_distinct(Batch.Year),
+    H_bar          = mean(tapply(share, Batch.Year, function(s) sum(s^2))),
+    H_LR           = sum(unique(mean.share.fishery)^2),
+    .groups = "drop"
+  ) %>%
+  mutate(Phi = H_bar - H_LR) %>%
+  left_join(
+    active_vessel_years %>%
+      mutate(period = period_of(Batch.Year)) %>%
+      group_by(Vessel.ADFG.Number, period) %>%
+      summarise(rev.cv = sd(vessel.year.rev) / mean(vessel.year.rev), .groups = "drop"),
+    by = c("Vessel.ADFG.Number", "period")
+  ) %>%
+  mutate(meets.min.years.period = n.years.period >= MIN_ACTIVE_YEARS_PERIOD)
+
+cat("vessel_period_summary rows:", nrow(vessel_period_summary),
+    " meeting MIN_ACTIVE_YEARS_PERIOD =", MIN_ACTIVE_YEARS_PERIOD, ":",
+    sum(vessel_period_summary$meets.min.years.period), "\n")
 
 # ============================================================================
 # 7. Owner-level panel (File.Number), same three objects
@@ -486,11 +579,13 @@ cat("Mean owner-level unused.count.share (fishery-class):",
 active_owner_years <- owner_year %>% filter(owner.year.rev > 0) %>%
   select(File.Number, Batch.Year, owner.year.rev)
 
-owner_share_panel <- owner_fishery_year %>%
+owner_share_raw <- owner_fishery_year %>%
   filter(fished) %>%
   inner_join(active_owner_years, by = c("File.Number", "Batch.Year")) %>%
   mutate(share = revenue / owner.year.rev) %>%
-  select(File.Number, Batch.Year, Fishery, share) %>%
+  select(File.Number, Batch.Year, Fishery, share)
+
+owner_share_panel <- owner_share_raw %>%
   group_by(File.Number) %>%
   complete(Fishery, Batch.Year, fill = list(share = 0)) %>%
   ungroup() %>%
@@ -519,12 +614,54 @@ cat("owner_summary rows:", nrow(owner_summary),
     " meeting MIN_ACTIVE_YEARS:", sum(owner_summary$meets.min.years), "\n")
 
 # ============================================================================
+# 7b. Period-specific decomposition, owner level (mirrors Section 6b)
+# ============================================================================
+#
+# Reuses period_of() and the same two thresholds from Section 6b, the intent
+# is one shared set of calendar periods for the whole pipeline, not
+# separately-computed owner-level periods that could drift from the
+# vessel-level ones.
+
+owner_share_raw_period <- owner_share_raw %>% mutate(period = period_of(Batch.Year))
+
+owner_period_share_panel <- owner_share_raw_period %>%
+  group_by(File.Number, period) %>%
+  complete(Fishery, Batch.Year, fill = list(share = 0)) %>%
+  ungroup()
+
+owner_period_summary <- owner_period_share_panel %>%
+  group_by(File.Number, period, Fishery) %>%
+  mutate(mean.share.fishery = mean(share)) %>%
+  group_by(File.Number, period) %>%
+  summarise(
+    n.years.period = n_distinct(Batch.Year),
+    H_bar          = mean(tapply(share, Batch.Year, function(s) sum(s^2))),
+    H_LR           = sum(unique(mean.share.fishery)^2),
+    .groups = "drop"
+  ) %>%
+  mutate(Phi = H_bar - H_LR) %>%
+  left_join(
+    active_owner_years %>%
+      mutate(period = period_of(Batch.Year)) %>%
+      group_by(File.Number, period) %>%
+      summarise(rev.cv = sd(owner.year.rev) / mean(owner.year.rev), .groups = "drop"),
+    by = c("File.Number", "period")
+  ) %>%
+  mutate(meets.min.years.period = n.years.period >= MIN_ACTIVE_YEARS_PERIOD)
+
+cat("owner_period_summary rows:", nrow(owner_period_summary),
+    " meeting MIN_ACTIVE_YEARS_PERIOD:", sum(owner_period_summary$meets.min.years.period), "\n")
+
+# ============================================================================
 # 8. Save
 # ============================================================================
 
 save(
   vessel_fishery_year, vessel_year, vessel_summary, vessel_mean_share, vessel_share_panel,
+  vessel_period_summary,
   owner_fishery_year, owner_year, owner_summary,
+  owner_period_summary,
+  period_bounds,
   match_diag, fleet_mean_revenue,
   file = panel_path
 )

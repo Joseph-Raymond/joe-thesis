@@ -58,6 +58,20 @@ BAD_VESSEL_IDS <- c(0, 99999)
 # otherwise dominate the passive benchmark for any vessel invested in them.
 MIN_FISHERY_RETURN_YEARS <- 10
 
+# Number of roughly-equal calendar periods H_bar/H_LR/Phi also get computed
+# over, alongside the whole-panel version, see the "Period-specific
+# decomposition" section of 01_build_panel.R. The two period breakpoints
+# are computed once from the observed data range (not hardcoded years), so
+# they stay correct if the panel's coverage changes, but they are fixed for
+# the run, the same two thresholds bucket every vessel and owner.
+N_PERIODS <- 3
+
+# A vessel/owner needs at least this many active years WITHIN a period to
+# enter that period's summary. Deliberately lower than MIN_ACTIVE_YEARS (5),
+# a period is roughly a third as long as the full panel, so a proportionally
+# smaller minimum is the natural analogue, not a separately justified number.
+MIN_ACTIVE_YEARS_PERIOD <- 4
+
 # Gear digit lookup for salmon fisheries only, taken verbatim from CLAUDE.md
 # and chapter3_plan.md Section 1. Not defined for non-salmon species letters,
 # those fall to "Other/unclassified" in build_gear_class() (03_figure1_figure2.R).
