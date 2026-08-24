@@ -52,12 +52,6 @@ MIN_ACTIVE_YEARS <- 5
 # Sentinel values that mean "no real vessel", matching permit_link.R
 BAD_VESSEL_IDS <- c(0, 99999)
 
-# A fishery needs at least this many years of fleet-mean-revenue observations
-# to enter the return covariance matrix behind Figure 3 (05_table4_figure3.R).
-# Thin fisheries produce noisy variance/covariance estimates that would
-# otherwise dominate the passive benchmark for any vessel invested in them.
-MIN_FISHERY_RETURN_YEARS <- 10
-
 # Number of roughly-equal calendar periods H_bar/H_LR/Phi also get computed
 # over, alongside the whole-panel version, see the "Period-specific
 # decomposition" section of 01_build_panel.R. The two period breakpoints

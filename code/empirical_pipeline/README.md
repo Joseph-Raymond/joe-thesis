@@ -129,6 +129,19 @@ point it is made in the code.
   vessel held but never fished, unlike the historical-weight version) is not
   built, see the comment block at the top of the Figure 3 section in
   `05_table4_figure3.R` for how to add it.
+- **`passive.cv` is computed on revenue levels, matching `rev.cv`, not on
+  log returns.** An earlier version built a fleet-level return-covariance
+  matrix and used `sqrt(w' Sigma w)`, which put the benchmark on a different
+  statistical basis than the levels-based `rev.cv` it gets compared against,
+  biasing the comparison toward "realized exceeds passive" for any vessel
+  with a smooth multi-year revenue trend (inflation being one cause among
+  several), independent of any real reallocation behavior. The current
+  version constructs a counterfactual revenue-level series per vessel,
+  `sum_j w_ij * fleet_mean_revenue_jt` over the vessel's own active years,
+  and takes its CV the same way `rev.cv` is computed everywhere else in this
+  pipeline, see the comment block at the top of the Figure 3 section in
+  `05_table4_figure3.R`. This also matches Chapter 2's own CV definition,
+  which is levels-based.
 - **No CPI deflator ships with this pipeline.** `load_deflator()` in
   `00_setup.R` looks for `Chpt3/data/cpi_deflator.csv` (columns `Year`,
   `CPI`) and falls back to nominal dollars with a warning if it is missing.

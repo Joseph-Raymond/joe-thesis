@@ -4,9 +4,10 @@
 #          coefficients, run in levels (not logs, since H_bar = H_LR + Phi is
 #          additive and log of a sum does not split into a sum of logs, per
 #          chapter3_plan.md Section 9.2).
-# Figure 3. Fleet-level fishery return covariance structure, used to build a
-#          passive buy-and-hold benchmark CV for each vessel's portfolio,
-#          plotted against realized CV.
+# Figure 3. A passive buy-and-hold benchmark CV for each vessel's portfolio
+#          (same sd/mean-of-revenue-levels formula as realized CV, applied
+#          to a counterfactual fixed-weights revenue series), plotted
+#          against realized CV.
 #
 # Reads intermediate data/ch3_panel.rdata built by 01_build_panel.R.
 
@@ -69,76 +70,63 @@ cat("Standardized share of the decomposed slope loading onto Phi:", round(g2_sha
 # Figure 3. Passive buy-and-hold benchmark vs realized CV
 # ============================================================================
 #
-# 1. Build a fleet-level fishery "return" series, the year-over-year log
-#    change in fleet-mean revenue per active vessel (fleet_mean_revenue was
-#    saved by 01_build_panel.R). This is the empirical analogue of Chapter
-#    2's rho sweep, a covariance structure across fisheries' realized
-#    outcomes, not across individual vessels.
-# 2. Restrict to fisheries with at least MIN_FISHERY_RETURN_YEARS of data and
-#    build their covariance matrix Sigma.
-# 3. For each vessel, apply its own long-run realized shares (vessel_mean_share,
-#    the same weights that define H_LR) as passive buy-and-hold portfolio
-#    weights over the fisheries it actually holds, renormalized to the
-#    subset of fisheries present in Sigma. passive.cv = sqrt(w' Sigma w), the
-#    volatility of the return that a buy-and-hold operator with vessel i's
-#    own long-run allocation would have experienced.
-# 4. Compare passive.cv to realized rev.cv. Points above the 45-degree line
-#    experienced more revenue instability than their held portfolio's return
-#    covariance alone implies, i.e. rotation into imperfectly correlated
-#    fisheries raised risk. Points below show rotation that hedged risk
-#    below the passive benchmark.
+# passive.cv is built the same way rev.cv is, sd/mean of a REVENUE LEVEL
+# series over a vessel's own active years, not sqrt(w' Sigma w) on log
+# returns (an earlier version of this script did that). Log returns and
+# revenue levels are different statistical objects, and comparing rev.cv
+# (levels) against a return-based benchmark biases the comparison, a vessel
+# with any smooth multi-year revenue trend, from inflation, growth, anything,
+# inflates CV-of-levels a lot while barely moving SD-of-log-returns, so
+# "realized CV exceeds passive CV" could partly just reflect that mismatch
+# rather than real reallocation risk. This version compares like with like.
 #
-# This is one reasonable operationalization of an intentionally open design
-# choice (chapter3_plan.md Section 5C, "passive equal or historical
-# weights"). Historical weights are used here as the primary version. An
-# equal-weight variant across the full held set (including fisheries never
-# fished, which get zero weight under the historical version by
-# construction) is a natural robustness cut to add once this runs.
+# For vessel i in year t, restricted to i's own active years (the same
+# window rev.cv is computed over), passive_revenue_it = sum_j w_ij *
+# fleet_mean_revenue_jt, what i would have earned that year by holding its
+# own fixed long-run weights (vessel_mean_share, the same weights that
+# define H_LR) against what the fleet as a whole actually earned in each of
+# i's held fisheries that year. passive.cv_i = sd/mean of that series, same
+# formula, same window as rev.cv, only the revenue-generating process
+# (actual vs counterfactual-fixed-weights) differs. This also matches
+# Chapter 2's own CV definition (levels-based), keeping Chapter 3
+# comparable to Chapter 2 rather than quietly using a different metric.
+#
+# Reading the figure, same as before, a point above the 45-degree line
+# experienced more revenue instability than holding its own long-run
+# portfolio fixed would have, given what the fleet actually earned, i.e.
+# real reallocation risk, not just an accounting artifact of the H_bar/Phi
+# construction. A point below hedged risk below that passive benchmark.
+#
+# fleet_mean_revenue is missing for a (fishery, year) with zero fleet-wide
+# activity that year, filled with 0 here, consistent with how
+# forgone.value/fished.value already treat that case in 01_build_panel.R.
+# Weights in vessel_mean_share already sum to 1 for every vessel by
+# construction (shares sum to 1 within any year, so their vessel-level means
+# do too), so no renormalization or fishery-eligibility filter is needed
+# here, unlike the return-covariance version this replaced.
 
-if (!exists("fleet_mean_revenue") || !exists("vessel_mean_share")) load(panel_path)
+if (!exists("fleet_mean_revenue") || !exists("vessel_mean_share") || !exists("vessel_year")) load(panel_path)
 
-fishery_returns <- fleet_mean_revenue %>%
-  arrange(Fishery, Batch.Year) %>%
-  group_by(Fishery) %>%
-  mutate(log.return = log(fleet_mean_revenue) - log(lag(fleet_mean_revenue))) %>%
-  ungroup() %>%
-  filter(!is.na(log.return))
+active_vessel_years <- vessel_year %>%
+  filter(vessel.year.rev > 0) %>%
+  select(Vessel.ADFG.Number, Batch.Year)
 
-fishery_year_counts <- fishery_returns %>% count(Fishery, name = "n.years")
-eligible_fisheries <- fishery_year_counts %>% filter(n.years >= MIN_FISHERY_RETURN_YEARS) %>% pull(Fishery)
-cat("Fisheries entering the return covariance matrix:", length(eligible_fisheries),
-    "of", n_distinct(fishery_returns$Fishery), "\n")
+passive_series <- vessel_mean_share %>%
+  semi_join(vessel_analysis, by = "Vessel.ADFG.Number") %>%
+  inner_join(active_vessel_years, by = "Vessel.ADFG.Number", relationship = "many-to-many") %>%
+  left_join(fleet_mean_revenue %>% select(Batch.Year, Fishery, fleet_mean_revenue),
+            by = c("Batch.Year", "Fishery")) %>%
+  mutate(fleet_mean_revenue = replace_na(fleet_mean_revenue, 0)) %>%
+  group_by(Vessel.ADFG.Number, Batch.Year) %>%
+  summarise(passive_revenue = sum(mean.share.fishery * fleet_mean_revenue), .groups = "drop")
 
-return_wide <- fishery_returns %>%
-  filter(Fishery %in% eligible_fisheries) %>%
-  select(Batch.Year, Fishery, log.return) %>%
-  pivot_wider(names_from = Fishery, values_from = log.return) %>%
-  arrange(Batch.Year)
-
-Sigma <- cov(select(return_wide, -Batch.Year), use = "pairwise.complete.obs")
-Sigma[is.na(Sigma)] <- 0 # a fishery-pair with no year overlap contributes no covariance
-
-# Portfolio return volatility under vessel i's own long-run held-fishery
-# weights, restricted and renormalized to eligible_fisheries. Vessels with
-# most of their weight in ineligible (thin) fisheries get a passive.cv built
-# on a small, unreliable renormalized weight vector, hence dropped.weight.
-passive_benchmark <- vessel_mean_share %>%
-  filter(Fishery %in% eligible_fisheries) %>%
+passive_benchmark <- passive_series %>%
   group_by(Vessel.ADFG.Number) %>%
   summarise(
-    kept.weight = sum(mean.share.fishery),
-    weights = list(setNames(mean.share.fishery, Fishery)),
+    n.years.passive = n(),
+    passive.cv = sd(passive_revenue) / mean(passive_revenue),
     .groups = "drop"
-  ) %>%
-  filter(kept.weight > 0) %>%
-  mutate(
-    weights = map(weights, ~ .x / sum(.x)),
-    passive.cv = map_dbl(weights, function(w) {
-      idx <- names(w)
-      sqrt(as.numeric(t(w) %*% Sigma[idx, idx, drop = FALSE] %*% w))
-    })
-  ) %>%
-  select(Vessel.ADFG.Number, kept.weight, passive.cv)
+  )
 
 fig3_data <- vessel_analysis %>%
   select(Vessel.ADFG.Number, rev.cv, H_bar, H_LR, Phi) %>%
@@ -146,8 +134,6 @@ fig3_data <- vessel_analysis %>%
   filter(is.finite(passive.cv))
 
 cat("Vessels with a computable passive benchmark:", nrow(fig3_data), "\n")
-cat("Median share of held-portfolio weight retained after the eligibility filter:",
-    round(median(fig3_data$kept.weight), 3), "\n")
 
 figure3 <- fig3_data %>%
   ggplot(aes(x = passive.cv, y = rev.cv)) +
@@ -155,7 +141,7 @@ figure3 <- fig3_data %>%
   geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "firebrick") +
   labs(
     title = "Realized revenue CV versus a passive buy-and-hold benchmark",
-    subtitle = "Benchmark uses each vessel's own long-run fishery weights against the fleet return covariance matrix. Dashed line is the 45-degree reference.",
+    subtitle = "Benchmark holds each vessel's own long-run fishery weights fixed against actual fleet-wide revenue, same years and CV formula as realized. Dashed line is the 45-degree reference.",
     x = "Passive benchmark CV (buy-and-hold, vessel's own weights)",
     y = "Realized revenue CV"
   ) +
