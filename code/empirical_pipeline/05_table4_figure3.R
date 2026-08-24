@@ -275,14 +275,18 @@ multi_summary <- fig3b_data %>%
   mutate(phi.bin = ntile(Phi, N_GAP_BINS)) %>%
   group_by(phi.bin) %>%
   summarise(
-    bin.label = paste0("Q", phi.bin),
-    bin.order = phi.bin,
     n = n(),
     mean.Phi = mean(Phi),
     mean.gap = mean(gap),
     se.gap = sd(gap) / sqrt(n),
     .groups = "drop"
   ) %>%
+  # bin.label/bin.order built after summarise, once phi.bin is one row per
+  # group, referencing it inside summarise() itself returns the full
+  # per-row vector for that group (not a scalar), which is what raised the
+  # "must be size 1" error, group_by does not collapse its own key inside
+  # summarise unless you explicitly reduce it.
+  mutate(bin.label = paste0("Q", phi.bin), bin.order = phi.bin) %>%
   select(-phi.bin)
 
 gap_by_phi <- bind_rows(specialist_summary, multi_summary) %>%
