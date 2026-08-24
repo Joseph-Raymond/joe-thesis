@@ -73,7 +73,7 @@ classify_gear <- function(df) {
   present <- intersect(GEAR_COLUMNS, names(gear_matrix))
   gear_class <- rep(NA_character_, nrow(df))
   for (g in present) {
-    gear_class[is.na(gear_class) & gear_matrix[[g]]] <- g
+    gear_class[is.na(gear_class) & gear_matrix[[g]]] <- gsub("\\.", " ", g)
   }
   gear_class[is.na(gear_class)] <- "Unclassified"
   gear_class

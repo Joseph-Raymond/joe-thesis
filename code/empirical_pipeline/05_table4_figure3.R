@@ -169,14 +169,14 @@ cat("Wrote table4_decomposition_regression.tex (multi-fishery vessels, main text
 # here, unlike the return-covariance version this replaced.
 #
 # Single-fishery specialists (is.specialist, built above for Table 4) are
-# kept in this figure rather than dropped, but colored separately. A
-# specialist's passive.cv is built off the fleet mean of the one fishery it
-# holds, so any gap to its own rev.cv is pure idiosyncratic noise around
-# that fleet mean, not reallocation, there is nothing to reallocate. Hiding
-# those points would hide that floor and let the 45-degree-line pattern read
-# as evidence of reallocation risk alone, when part of the pattern predates
-# any behavior at all. Keeping them visible, distinguished by color, lets
-# the figure show both facts at once.
+# excluded from the main scatter and shown in their own appendix figure
+# instead. A specialist's passive.cv is built off the fleet mean of the one
+# fishery it holds, so any gap to its own rev.cv is pure idiosyncratic noise
+# around that fleet mean, not reallocation, there is nothing to reallocate.
+# Mixing that noise floor into the main-text figure risked reading the
+# 45-degree-line pattern as evidence of reallocation risk alone, when part
+# of it predates any behavior at all, so the two populations get their own
+# plots instead of one plot with two colors.
 
 if (!exists("fleet_mean_revenue") || !exists("vessel_mean_share") || !exists("vessel_year")) load(panel_path)
 
@@ -209,27 +209,60 @@ fig3_data <- vessel_analysis %>%
 cat("Vessels with a computable passive benchmark:", nrow(fig3_data),
     " of which single-fishery specialists:", sum(fig3_data$is.specialist), "\n")
 
+passive_benchmark_scatter <- function(data, subtitle) {
+  data %>%
+    ggplot(aes(x = passive.cv, y = rev.cv)) +
+    geom_point(alpha = 0.15, size = 0.8, color = "steelblue") +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "firebrick") +
+    labs(
+      title = "Realized revenue CV versus a passive buy-and-hold benchmark",
+      subtitle = subtitle,
+      x = "Passive benchmark CV (buy-and-hold, vessel's own weights)",
+      y = "Realized revenue CV"
+    ) +
+    theme_minimal()
+}
+
 figure3 <- fig3_data %>%
-  mutate(vessel.type = if_else(is.specialist, "Single-fishery specialist", "Multi-fishery vessel")) %>%
-  ggplot(aes(x = passive.cv, y = rev.cv, color = vessel.type)) +
-  geom_point(alpha = 0.15, size = 0.8) +
-  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "firebrick") +
-  scale_color_manual(values = c("Single-fishery specialist" = "gray50",
-                                 "Multi-fishery vessel" = "steelblue")) +
-  guides(color = guide_legend(override.aes = list(alpha = 1, size = 2))) +
-  labs(
-    title = "Realized revenue CV versus a passive buy-and-hold benchmark",
-    subtitle = "Benchmark holds each vessel's own long-run fishery weights fixed against actual fleet-wide revenue, same years and CV formula as realized. Dashed line is the 45-degree reference. Specialists (one fishery ever) have Phi = 0 by construction, any gap for them is idiosyncratic noise, not reallocation.",
-    x = "Passive benchmark CV (buy-and-hold, vessel's own weights)",
-    y = "Realized revenue CV",
-    color = NULL
-  ) +
-  theme_minimal()
+  filter(!is.specialist) %>%
+  passive_benchmark_scatter(
+    paste(
+      "Multi-fishery vessels only. Benchmark holds each vessel's own long-run",
+      "fishery weights fixed against actual fleet-wide revenue, same years and",
+      "CV formula as realized. Dashed line is the 45-degree reference.",
+      "Single-fishery specialists are shown separately in the appendix."
+    )
+  )
 
 ggsave(file.path(figure_dir, "figure3_passive_benchmark.png"),
        figure3, width = 7, height = 6, dpi = 300)
 
-cat("Wrote figure3_passive_benchmark.png\n")
+cat("Wrote figure3_passive_benchmark.png (multi-fishery vessels)\n")
+
+# ----------------------------------------------------------------------
+# Appendix. Same benchmark, single-fishery specialists only
+# ----------------------------------------------------------------------
+#
+# Phi = 0 for every point here by construction, so this is not a
+# reallocation-risk figure the way the main-text one is, it is a check on
+# how noisy the passive benchmark itself is when a vessel's whole portfolio
+# is one fishery. That is why it belongs in the appendix rather than the
+# main text.
+
+figure3_appendix <- fig3_data %>%
+  filter(is.specialist) %>%
+  passive_benchmark_scatter(
+    paste(
+      "Single-fishery specialists only (Phi = 0 by construction). Any gap to",
+      "the 45-degree line here is idiosyncratic noise around the fleet mean",
+      "of the one fishery held, not reallocation, there is nothing to reallocate."
+    )
+  )
+
+ggsave(file.path(figure_dir, "figure3_appendix_specialists.png"),
+       figure3_appendix, width = 7, height = 6, dpi = 300)
+
+cat("Wrote figure3_appendix_specialists.png (single-fishery specialists, appendix)\n")
 
 # ============================================================================
 # Figure 3b. Gap between realized and passive CV, binned by Phi

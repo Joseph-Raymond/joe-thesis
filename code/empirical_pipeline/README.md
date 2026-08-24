@@ -116,6 +116,25 @@ point it is made in the code.
   between the two count shares the first time it runs, worth reading before
   deciding whether the gap is big enough to lead with the permit-serial
   version in the writeup rather than treating it as a robustness footnote.
+- **Figure 1's held/fished panel is trimmed to drop trailing years where
+  ticket coverage collapses relative to permit coverage.** `permit_register`
+  (held) and `catch_data_temp` (fished) are two separate source pulls with
+  no guaranteed shared end year, `chapter3_plan.md` Section 1 notes the
+  permit/vessel registers run through 2022 while the fish-ticket pull's true
+  end year is uncertain. A held permit in a year the ticket data barely
+  covers reads as held-but-never-fished by construction, which would
+  mechanically spike `unused.count.share`/`unused.value.share` fleet-wide in
+  that year and looked like the likely cause of an end-of-series jump in
+  Figure 1. `01_build_panel.R` Section 2b now walks backward from the last
+  observed year and drops any run of trailing years whose ticketed-vessel
+  count falls below half its own 3-year trailing baseline, applied to
+  `permit_register`/`catch_data_temp` themselves so every downstream table
+  and figure sees the corrected range, not just Figure 1. It prints the
+  coverage table it decided on, CHECK that once this runs on real data, the
+  half-of-baseline threshold is a judgment call. A parallel, cheaper check
+  right after `deflate()` warns if `cpi_deflator.csv` is simply missing a
+  final-year row, which would produce the identical symptom for a different
+  reason.
 - **Figure 2's gear class comes from the CFEC vessel register's own gear
   dummy columns**, not from the fishery code's gear digits, and picks a
   vessel's single modal gear class across its panel. A vessel rigged for more
@@ -142,9 +161,10 @@ point it is made in the code.
   pipeline, see the comment block at the top of the Figure 3 section in
   `05_table4_figure3.R`. This also matches Chapter 2's own CV definition,
   which is levels-based.
-- **Table 4's main-text models exclude single-fishery specialists, Figure 3
-  keeps them but colors them separately.** A vessel that only ever fished
-  one fishery has `Phi = 0` exactly, no within-vessel reallocation to
+- **Table 4's main-text models exclude single-fishery specialists, and
+  Figure 3 splits into a main-text plot (multi-fishery vessels) and a
+  separate appendix plot (specialists only).** A vessel that only ever
+  fished one fishery has `Phi = 0` exactly, no within-vessel reallocation to
   measure, so it contributes no identifying variation to `g2` and just sits
   at a fixed `(H_LR = 1, Phi = 0)` point inside its `prime.fishery` FE group.
   Binning vessels by `Phi` and checking the mean gap between `rev.cv` and
@@ -157,10 +177,13 @@ point it is made in the code.
   (specialists excluded) and writes that as the main
   `table4_decomposition_regression.tex`, with the old pooled-sample version
   of all four models kept as an explicit robustness comparison in
-  `table4_decomposition_regression_pooled.tex`, not dropped. Figure 3 keeps
-  every vessel, specialists included, but colors points by
-  `is.specialist` so the idiosyncratic-noise floor stays visible rather than
-  silently folded into the "most points above the line" pattern.
+  `table4_decomposition_regression_pooled.tex`, not dropped. Figure 3 used
+  to keep every vessel in one plot colored by `is.specialist`, it now writes
+  `figure3_passive_benchmark.png` (multi-fishery vessels, main text) and
+  `figure3_appendix_specialists.png` (specialists only, appendix) as two
+  separate files, since a specialist's passive.cv is built off the fleet
+  mean of the single fishery it holds and mixing that noise floor into the
+  main-text scatter risked reading it as evidence of reallocation risk.
 - **No CPI deflator ships with this pipeline.** `load_deflator()` in
   `00_setup.R` looks for `Chpt3/data/cpi_deflator.csv` (columns `Year`,
   `CPI`) and falls back to nominal dollars with a warning if it is missing.

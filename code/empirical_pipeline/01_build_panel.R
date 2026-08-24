@@ -84,9 +84,9 @@ cat("Permit register rows:", nrow(permit_register_raw),
 # keyed on File.Number) is built separately in Section 5 of this script.
 permit_register <- permit_register_raw %>% filter(has.vessel.id)
 
-held_vessel_fishery <- permit_register %>%
-  distinct(Vessel.ADFG.Number, Batch.Year, Fishery) %>%
-  mutate(held = TRUE)
+# held_vessel_fishery is built in Section 2b below, after the trailing-year
+# coverage check, not here, since that check can trim permit_register's own
+# year range and held_vessel_fishery needs to reflect the trimmed version.
 
 # ============================================================================
 # 2. Fish tickets (fished set and realized revenue)
@@ -139,6 +139,99 @@ fished_vessel_fishery_year <- catch_data_temp %>%
     File.Number  = first(CFEC.Permit.Holder.Filing.Number),
     .groups = "drop"
   )
+
+# ============================================================================
+# 2b. Trailing-year coverage check (held vs fished)
+# ============================================================================
+#
+# permit_register (Section 1, held permits) and catch_data_temp (fished fish
+# tickets, just above) come from two different source pulls that are not
+# guaranteed to share the same final year. chapter3_plan.md Section 1 notes
+# the permit and vessel registers run through 2022 while the fish-ticket
+# pull's true end year is uncertain and may stop earlier, or its last file
+# may be a mid-revision partial extract rather than a finished one. A held
+# permit in a year the ticket data barely covers reads as held-but-never-
+# fished by construction, Section 4's full_join below defaults fished to
+# FALSE whenever no ticket row exists for that vessel-fishery-year, so a
+# coverage gap at the end of catch_data_temp would mechanically push
+# unused.count.share and unused.value.share toward 1 fleet-wide in that
+# year, a data-pull artifact rather than operators actually idling their
+# whole fleet at once. This is the leading suspect for an end-of-series jump
+# in Figure 1, checked here directly rather than left to be diagnosed off
+# the plot alone, and trimmed at the source so every downstream table and
+# figure sees the same corrected year range, not just Figure 1's plot.
+#
+# Walking backward from the max observed Batch.Year, a year is flagged as
+# coverage-incomplete if its count of distinct vessels appearing anywhere in
+# catch_data_temp falls below half the mean of the three years before it.
+# Only a run CONTIGUOUS with the final year is dropped, a genuine mid-panel
+# closure (a fishery shutting down, one bad season fleet-wide) should not
+# trigger this and is left alone, only a collapse that persists through the
+# last observed year points at a data-pull artifact rather than a real
+# fishing-effort decline.
+#
+# CHECK the printed coverage table once this runs on the server against real
+# data. The half-of-trailing-baseline threshold is a judgment call, not a
+# fact, tighten or loosen it (or just hardcode MAX_YEAR directly below) if
+# it drops a year that turns out to be genuine or keeps one that is not.
+
+year_fished_counts <- catch_data_temp %>%
+  distinct(Vessel.ADFG.Number, Batch.Year) %>%
+  count(Batch.Year, name = "n.vessels.with.tickets")
+
+year_held_counts <- permit_register %>%
+  distinct(Vessel.ADFG.Number, Batch.Year) %>%
+  count(Batch.Year, name = "n.vessels.held")
+
+trailing_mean <- function(x, k = 3) {
+  vapply(seq_along(x), function(i) {
+    lo <- max(1, i - k)
+    hi <- i - 1
+    if (hi < lo) return(NA_real_)
+    mean(x[lo:hi])
+  }, numeric(1))
+}
+
+year_coverage <- year_held_counts %>%
+  full_join(year_fished_counts, by = "Batch.Year") %>%
+  arrange(Batch.Year) %>%
+  mutate(
+    n.vessels.with.tickets = replace_na(n.vessels.with.tickets, 0),
+    baseline.n.tickets     = trailing_mean(n.vessels.with.tickets),
+    coverage.collapsed     = !is.na(baseline.n.tickets) & n.vessels.with.tickets < 0.5 * baseline.n.tickets
+  )
+
+cat("Held vs ticketed vessel counts, last 5 years of coverage\n")
+print(tail(select(year_coverage, Batch.Year, n.vessels.held, n.vessels.with.tickets), 5))
+
+max_year_observed <- max(year_coverage$Batch.Year)
+collapsed_years <- year_coverage$Batch.Year[year_coverage$coverage.collapsed]
+drop_years <- c()
+y <- max_year_observed
+while (y %in% collapsed_years) {
+  drop_years <- c(drop_years, y)
+  y <- y - 1
+}
+
+if (length(drop_years) > 0) {
+  cat("Dropping trailing year(s) with collapsed ticket coverage relative to their own 3-year baseline, ",
+      "these read as held-but-unfished fleet-wide from a data-pull gap rather than real behavior, ",
+      paste(sort(drop_years), collapse = ", "), "\n")
+} else {
+  cat("No trailing coverage collapse detected, held and ticketed year ranges look consistent through ",
+      max_year_observed, "\n")
+}
+
+MAX_YEAR <- if (length(drop_years) > 0) min(drop_years) - 1 else max_year_observed
+
+permit_register_raw <- permit_register_raw %>% filter(Batch.Year <= MAX_YEAR)
+permit_register <- permit_register %>% filter(Batch.Year <= MAX_YEAR)
+catch_data_temp <- catch_data_temp %>% filter(Batch.Year <= MAX_YEAR)
+fished_vessel_fishery_year <- fished_vessel_fishery_year %>% filter(Batch.Year <= MAX_YEAR)
+
+held_vessel_fishery <- permit_register %>%
+  distinct(Vessel.ADFG.Number, Batch.Year, Fishery) %>%
+  mutate(held = TRUE)
 
 # ============================================================================
 # 3. Match-rate diagnostics (feeds Table 2, 02_table1_table2.R)
@@ -197,6 +290,24 @@ cat("Vessel-fishery-years fished without a matched held permit:", n_fished_unmat
     "(", round(100 * n_fished_unmatched / sum(vessel_fishery_year$fished), 2), "% of fished rows)\n")
 
 vessel_fishery_year <- deflate(vessel_fishery_year, "revenue", deflator)
+
+# A second, cheaper way the same end-of-series jump could show up, checked
+# defensively since it costs almost nothing here. If cpi_deflator.csv exists
+# but has no row for the panel's final year(s), deflate()'s join leaves
+# revenue as NA for every row in that year, which na.rm = TRUE then silently
+# turns into 0 wherever it gets summed downstream, again reading as a
+# fleet-wide collapse that is really just a missing CPI row.
+if (!is.null(deflator)) {
+  years_missing_deflator <- setdiff(unique(vessel_fishery_year$Batch.Year), deflator$Year)
+  if (length(years_missing_deflator) > 0) {
+    warning(
+      "cpi_deflator.csv has no row for Batch.Year ",
+      paste(sort(years_missing_deflator), collapse = ", "),
+      ", revenue silently drops to NA/0 for that year via na.rm downstream, ",
+      "which would look like exactly the kind of end-of-series jump Figure 1 is showing"
+    )
+  }
+}
 
 # Fleet-mean revenue per active (fishing) vessel, by fishery-year. Used as
 # the stand-in for what an idle vessel forgoes (Figure 1's value-share line)
