@@ -14,11 +14,27 @@
 source("code/empirical_pipeline/00_setup.R")
 
 if (!exists("vessel_summary")) load(panel_path)
+if (!exists("vessel_mean_share")) load(panel_path)
 
 vessel_analysis <- vessel_summary %>%
   filter(meets.min.years, is.finite(rev.cv), !is.na(prime.fishery))
 
-cat("Vessels entering Table 4:", nrow(vessel_analysis), "\n")
+# A vessel that only ever fished one fishery across its whole panel has
+# H_LR = 1 and Phi = 0 exactly, there is no within-vessel reallocation for
+# Phi to measure. vessel_mean_share's Fishery dimension is already each
+# vessel's own ever-fished set (built by completing Fishery x Batch.Year
+# grouped by vessel in 01_build_panel.R Section 6), so counting distinct
+# fisheries there is a direct count of fisheries ever fished, not an
+# approximation off H_LR's floating-point value.
+n_fisheries_fished <- vessel_mean_share %>%
+  count(Vessel.ADFG.Number, name = "n.fisheries.fished")
+
+vessel_analysis <- vessel_analysis %>%
+  left_join(n_fisheries_fished, by = "Vessel.ADFG.Number") %>%
+  mutate(is.specialist = n.fisheries.fished == 1)
+
+cat("Vessels entering Table 4:", nrow(vessel_analysis),
+    " of which single-fishery specialists:", sum(vessel_analysis$is.specialist), "\n")
 
 # ============================================================================
 # Table 4. Baseline versus decomposed regression
@@ -36,14 +52,32 @@ cat("Vessels entering Table 4:", nrow(vessel_analysis), "\n")
 # No "controls" are added beyond the fixed effect, Chapter3_outline.md
 # Section 4 does not specify a control set for Table 4 itself (vessel-level
 # controls like length show up later, Section 6). Add them here once decided.
+#
+# Main-text models are restricted to multi-fishery vessels (is.specialist ==
+# FALSE), not the full pooled sample. Single-fishery specialists have Phi
+# pinned at exactly 0, a mass point with no within-group spread, so they
+# contribute nothing to identifying g2 and instead just sit in the FE group
+# for their prime.fishery as an unmoving anchor at (H_LR = 1, Phi = 0). A
+# Phi-binned check on the Figure 3 gap (rev.cv - passive.cv) found the gap
+# is NOT smooth through Phi = 0, specialists sit above the gap of vessels
+# with small positive Phi before it climbs again, evidence they are on a
+# different footing (idiosyncratic noise around the fleet mean, not
+# reallocation) rather than the low end of the same relationship. Excluding
+# them keeps the decomposition's slope estimates from being anchored by a
+# subgroup the decomposition was never meant to describe. The pooled sample
+# is kept below as an explicit robustness comparison, not dropped.
 
-model_baseline   <- feols(rev.cv ~ H_bar | prime.fishery, data = vessel_analysis)
-model_decomposed <- feols(rev.cv ~ H_LR + Phi | prime.fishery, data = vessel_analysis)
+vessel_multi <- vessel_analysis %>% filter(!is.specialist)
+
+model_baseline   <- feols(rev.cv ~ H_bar | prime.fishery, data = vessel_multi)
+model_decomposed <- feols(rev.cv ~ H_LR + Phi | prime.fishery, data = vessel_multi)
 
 # Standardized versions, z-scoring the outcome and regressors before fitting
 # so coefficients are comparable in size across models (chapter3_plan.md
-# Section 9.3, "report g1 and g2 standardized").
-vessel_std <- vessel_analysis %>%
+# Section 9.3, "report g1 and g2 standardized"). Scaled within the
+# multi-fishery sample, not the pooled one, so the z-scores describe the
+# same population the models are fit on.
+vessel_std <- vessel_multi %>%
   mutate(across(c(rev.cv, H_bar, H_LR, Phi), ~ as.numeric(scale(.x)), .names = "z.{.col}"))
 
 model_baseline_std   <- feols(z.rev.cv ~ z.H_bar | prime.fishery, data = vessel_std)
@@ -65,6 +99,35 @@ print(etable(model_baseline, model_decomposed, model_baseline_std, model_decompo
 g2_share <- coef(model_decomposed_std)["z.Phi"] /
   (coef(model_decomposed_std)["z.H_LR"] + coef(model_decomposed_std)["z.Phi"])
 cat("Standardized share of the decomposed slope loading onto Phi:", round(g2_share, 3), "\n")
+
+# ----------------------------------------------------------------------
+# Robustness. Same four models on the full pooled sample (specialists and
+# multi-fishery vessels together), the version this replaced as the
+# main-text spec. Kept as an explicit side-by-side comparison rather than
+# silently dropped, a reviewer will ask what specialists do to the estimate.
+# ----------------------------------------------------------------------
+
+model_baseline_pooled   <- feols(rev.cv ~ H_bar | prime.fishery, data = vessel_analysis)
+model_decomposed_pooled <- feols(rev.cv ~ H_LR + Phi | prime.fishery, data = vessel_analysis)
+
+vessel_std_pooled <- vessel_analysis %>%
+  mutate(across(c(rev.cv, H_bar, H_LR, Phi), ~ as.numeric(scale(.x)), .names = "z.{.col}"))
+
+model_baseline_std_pooled   <- feols(z.rev.cv ~ z.H_bar | prime.fishery, data = vessel_std_pooled)
+model_decomposed_std_pooled <- feols(z.rev.cv ~ z.H_LR + z.Phi | prime.fishery, data = vessel_std_pooled)
+
+etable(
+  model_baseline_pooled, model_decomposed_pooled,
+  model_baseline_std_pooled, model_decomposed_std_pooled,
+  headers = c("Baseline (pooled)", "Decomposed (pooled)",
+              "Baseline (pooled, z)", "Decomposed (pooled, z)"),
+  tex = TRUE,
+  file = file.path(table_dir, "table4_decomposition_regression_pooled.tex"),
+  replace = TRUE
+)
+
+cat("Wrote table4_decomposition_regression.tex (multi-fishery vessels, main text)",
+    "and table4_decomposition_regression_pooled.tex (all vessels, robustness)\n")
 
 # ============================================================================
 # Figure 3. Passive buy-and-hold benchmark vs realized CV
@@ -104,6 +167,16 @@ cat("Standardized share of the decomposed slope loading onto Phi:", round(g2_sha
 # construction (shares sum to 1 within any year, so their vessel-level means
 # do too), so no renormalization or fishery-eligibility filter is needed
 # here, unlike the return-covariance version this replaced.
+#
+# Single-fishery specialists (is.specialist, built above for Table 4) are
+# kept in this figure rather than dropped, but colored separately. A
+# specialist's passive.cv is built off the fleet mean of the one fishery it
+# holds, so any gap to its own rev.cv is pure idiosyncratic noise around
+# that fleet mean, not reallocation, there is nothing to reallocate. Hiding
+# those points would hide that floor and let the 45-degree-line pattern read
+# as evidence of reallocation risk alone, when part of the pattern predates
+# any behavior at all. Keeping them visible, distinguished by color, lets
+# the figure show both facts at once.
 
 if (!exists("fleet_mean_revenue") || !exists("vessel_mean_share") || !exists("vessel_year")) load(panel_path)
 
@@ -129,25 +202,31 @@ passive_benchmark <- passive_series %>%
   )
 
 fig3_data <- vessel_analysis %>%
-  select(Vessel.ADFG.Number, rev.cv, H_bar, H_LR, Phi) %>%
+  select(Vessel.ADFG.Number, rev.cv, H_bar, H_LR, Phi, is.specialist) %>%
   inner_join(passive_benchmark, by = "Vessel.ADFG.Number") %>%
   filter(is.finite(passive.cv))
 
-cat("Vessels with a computable passive benchmark:", nrow(fig3_data), "\n")
+cat("Vessels with a computable passive benchmark:", nrow(fig3_data),
+    " of which single-fishery specialists:", sum(fig3_data$is.specialist), "\n")
 
 figure3 <- fig3_data %>%
-  ggplot(aes(x = passive.cv, y = rev.cv)) +
+  mutate(vessel.type = if_else(is.specialist, "Single-fishery specialist", "Multi-fishery vessel")) %>%
+  ggplot(aes(x = passive.cv, y = rev.cv, color = vessel.type)) +
   geom_point(alpha = 0.15, size = 0.8) +
   geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "firebrick") +
+  scale_color_manual(values = c("Single-fishery specialist" = "gray50",
+                                 "Multi-fishery vessel" = "steelblue")) +
+  guides(color = guide_legend(override.aes = list(alpha = 1, size = 2))) +
   labs(
     title = "Realized revenue CV versus a passive buy-and-hold benchmark",
-    subtitle = "Benchmark holds each vessel's own long-run fishery weights fixed against actual fleet-wide revenue, same years and CV formula as realized. Dashed line is the 45-degree reference.",
+    subtitle = "Benchmark holds each vessel's own long-run fishery weights fixed against actual fleet-wide revenue, same years and CV formula as realized. Dashed line is the 45-degree reference. Specialists (one fishery ever) have Phi = 0 by construction, any gap for them is idiosyncratic noise, not reallocation.",
     x = "Passive benchmark CV (buy-and-hold, vessel's own weights)",
-    y = "Realized revenue CV"
+    y = "Realized revenue CV",
+    color = NULL
   ) +
   theme_minimal()
 
 ggsave(file.path(figure_dir, "figure3_passive_benchmark.png"),
        figure3, width = 7, height = 6, dpi = 300)
 
-cat("Wrote table4_decomposition_regression.tex and figure3_passive_benchmark.png\n")
+cat("Wrote figure3_passive_benchmark.png\n")

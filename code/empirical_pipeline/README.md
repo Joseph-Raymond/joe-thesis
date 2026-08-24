@@ -142,6 +142,25 @@ point it is made in the code.
   pipeline, see the comment block at the top of the Figure 3 section in
   `05_table4_figure3.R`. This also matches Chapter 2's own CV definition,
   which is levels-based.
+- **Table 4's main-text models exclude single-fishery specialists, Figure 3
+  keeps them but colors them separately.** A vessel that only ever fished
+  one fishery has `Phi = 0` exactly, no within-vessel reallocation to
+  measure, so it contributes no identifying variation to `g2` and just sits
+  at a fixed `(H_LR = 1, Phi = 0)` point inside its `prime.fishery` FE group.
+  Binning vessels by `Phi` and checking the mean gap between `rev.cv` and
+  `passive.cv` per bin on real data showed the gap is not smooth through
+  `Phi = 0`, specialists sit above the gap of vessels with small positive
+  `Phi`, before it climbs again at high `Phi`, evidence they sit on a
+  different footing (idiosyncratic noise around the fleet mean, not
+  reallocation) rather than the low end of the same relationship.
+  `05_table4_figure3.R` now fits Table 4's four models on `vessel_multi`
+  (specialists excluded) and writes that as the main
+  `table4_decomposition_regression.tex`, with the old pooled-sample version
+  of all four models kept as an explicit robustness comparison in
+  `table4_decomposition_regression_pooled.tex`, not dropped. Figure 3 keeps
+  every vessel, specialists included, but colors points by
+  `is.specialist` so the idiosyncratic-noise floor stays visible rather than
+  silently folded into the "most points above the line" pattern.
 - **No CPI deflator ships with this pipeline.** `load_deflator()` in
   `00_setup.R` looks for `Chpt3/data/cpi_deflator.csv` (columns `Year`,
   `CPI`) and falls back to nominal dollars with a warning if it is missing.
