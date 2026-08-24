@@ -230,3 +230,86 @@ ggsave(file.path(figure_dir, "figure3_passive_benchmark.png"),
        figure3, width = 7, height = 6, dpi = 300)
 
 cat("Wrote figure3_passive_benchmark.png\n")
+
+# ============================================================================
+# Figure 3b. Gap between realized and passive CV, binned by Phi
+# ============================================================================
+#
+# gap_i = rev.cv_i - passive.cv_i, the vertical distance a point in Figure 3
+# sits above (or below) the 45-degree line. Binning by Phi and plotting the
+# mean gap per bin is the cleanest single piece of evidence in this pipeline
+# that reallocation itself is associated with added revenue instability,
+# cleaner than Table 4's regression coefficient because it imposes no
+# functional form and does not depend on how much of the FE structure is
+# absorbing cross-vessel variation.
+#
+# Single-fishery specialists are shown as their own point, not folded into
+# the lowest Phi bin. Phi is exactly 0 for every specialist, a mass point,
+# so binning them together with vessels that have small positive Phi would
+# either swallow the specialist point whole or, if the specialist mass is
+# bigger than one bin's worth, spill zeros into the neighboring bin and
+# quietly pull its mean down. Keeping specialists as their own category
+# avoids both problems and matches the point this figure exists to make,
+# specialists sit apart from the reallocation relationship, not at its low
+# end, since part of the gap is idiosyncratic noise around the fleet mean
+# that has nothing to do with reallocation.
+
+fig3b_data <- fig3_data %>%
+  mutate(gap = rev.cv - passive.cv)
+
+specialist_summary <- fig3b_data %>%
+  filter(is.specialist) %>%
+  summarise(
+    bin.label = "Specialists\n(Phi = 0)",
+    bin.order = 0,
+    n = n(),
+    mean.Phi = mean(Phi),
+    mean.gap = mean(gap),
+    se.gap = sd(gap) / sqrt(n)
+  )
+
+N_GAP_BINS <- 8
+
+multi_summary <- fig3b_data %>%
+  filter(!is.specialist) %>%
+  mutate(phi.bin = ntile(Phi, N_GAP_BINS)) %>%
+  group_by(phi.bin) %>%
+  summarise(
+    bin.label = paste0("Q", phi.bin),
+    bin.order = phi.bin,
+    n = n(),
+    mean.Phi = mean(Phi),
+    mean.gap = mean(gap),
+    se.gap = sd(gap) / sqrt(n),
+    .groups = "drop"
+  ) %>%
+  select(-phi.bin)
+
+gap_by_phi <- bind_rows(specialist_summary, multi_summary) %>%
+  mutate(bin.label = fct_reorder(bin.label, bin.order),
+         is.specialist.bin = bin.order == 0)
+
+print(gap_by_phi)
+
+figure3b <- gap_by_phi %>%
+  ggplot(aes(x = bin.label, y = mean.gap, color = is.specialist.bin)) +
+  geom_point(size = 2.5) +
+  geom_errorbar(aes(ymin = mean.gap - 1.96 * se.gap, ymax = mean.gap + 1.96 * se.gap), width = 0.2) +
+  geom_line(
+    data = gap_by_phi %>% filter(!is.specialist.bin),
+    aes(x = bin.label, y = mean.gap, group = 1),
+    color = "steelblue", inherit.aes = FALSE
+  ) +
+  scale_color_manual(values = c("TRUE" = "gray40", "FALSE" = "steelblue"), guide = "none") +
+  labs(
+    title = "Gap between realized and passive benchmark CV, by reallocation intensity",
+    subtitle = "Specialists (Phi = 0) shown separately from multi-fishery vessels, grouped into equal-sized bins by Phi (low to high). Error bars are 95% CI on the mean gap.",
+    x = "Reallocation intensity (Phi), specialists then increasing bins",
+    y = "Mean gap (realized CV − passive CV)"
+  ) +
+  theme_minimal()
+
+ggsave(file.path(figure_dir, "figure3b_gap_by_phi.png"),
+       figure3b, width = 7, height = 5, dpi = 300)
+
+cat("Wrote figure3b_gap_by_phi.png\n")
