@@ -98,10 +98,15 @@ if (file.exists(vessel_register_path)) {
       .groups = "drop"
     ) %>%
     mutate(
+      # 40-50 and 50-60 merged into one 40-60 bin, both were the two
+      # smallest of the original six (a 10ft-bin histogram of vessel_char's
+      # own vessel.length gave 2644 and 1362 respectively, versus 19327 for
+      # 0-20 and 20465 for 20-30), so combining them trims a group without
+      # flattening resolution in the two bins where most of the fleet sits.
       length.bin = cut(
         vessel.length,
-        breaks = c(0, 20, 30, 40, 50, 60, Inf),
-        labels = c("0-20", "20-30", "30-40", "40-50", "50-60", "60+"),
+        breaks = c(0, 20, 30, 40, 60, Inf),
+        labels = c("0-20", "20-30", "30-40", "40-60", "60+"),
         right = FALSE
       )
     )
@@ -124,7 +129,7 @@ if (file.exists(vessel_register_path)) {
 
   figure2 <- fig2_data %>%
     ggplot(aes(x = gear_class, y = mean.unused.count.share, fill = length.bin)) +
-    geom_boxplot(outlier.size = 0.5) +
+    geom_boxplot(outlier.size = 0.5, linewidth = 0.3) +
     labs(
       title = "Distribution of the unused permit share across vessels",
       subtitle = "By modal gear class and median vessel length (feet)",
