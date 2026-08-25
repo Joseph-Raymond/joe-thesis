@@ -113,6 +113,15 @@ if (file.exists(vessel_register_path)) {
     inner_join(vessel_char, by = "Vessel.ADFG.Number") %>%
     filter(!is.na(length.bin))
 
+  n_fish_wheel <- sum(fig2_data$gear_class == "Fish Wheel")
+  # Fish wheel is a non-motorized subsistence/personal-use gear, out of place
+  # next to genuine commercial gear classes in a fleet diversification
+  # figure, dropped from Figure 2 by request rather than folded into
+  # "Unclassified" or left as its own (likely tiny) box. classify_gear()
+  # itself is untouched, so this only affects what gets plotted here.
+  fig2_data <- fig2_data %>% filter(gear_class != "Fish Wheel")
+  cat("Vessels excluded from Figure 2 for Fish Wheel gear class:", n_fish_wheel, "\n")
+
   figure2 <- fig2_data %>%
     ggplot(aes(x = gear_class, y = mean.unused.count.share, fill = length.bin)) +
     geom_boxplot(outlier.size = 0.5) +

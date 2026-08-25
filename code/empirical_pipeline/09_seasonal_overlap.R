@@ -85,6 +85,15 @@ catch_data_temp$Vessel.ADFG.Number[catch_data_temp$Vessel.ADFG.Number == 62.39] 
 catch_data_temp <- catch_data_temp %>% filter(!(Vessel.ADFG.Number %in% BAD_VESSEL_IDS))
 catch_data_temp$Vessel.ADFG.Number <- as.integer(catch_data_temp$Vessel.ADFG.Number)
 
+# Pounds..Detail. loads as an R integer. Section 1 below pools pounds
+# fleet-wide across all 30 years per fishery, easily large enough to exceed
+# 32-bit int range and silently return NA rather than error (confirmed
+# against a real run of 06_within_season_reallocation.R, which sums the
+# same field over a single fishery-year and already overflowed there, see
+# that script's cleaning block). Coercing to double here, before anything
+# sums it, removes the ceiling entirely.
+catch_data_temp[["Pounds..Detail."]] <- as.numeric(catch_data_temp[["Pounds..Detail."]])
+
 catch_data_temp <- catch_data_temp %>%
   filter(Batch.Year >= MIN_YEAR, Batch.Year <= MAX_YEAR) %>%
   mutate(

@@ -15,7 +15,7 @@
 # explicitly optional in Chapter3_outline.md.
 #
 # Per chapter3_plan.md Section 9.2 ("R3's behavioral typing is... circular
-# for two of its three classifiers"), Phi and annual share churn are both
+# for two of its three classifiers"), Phi and annual share switching are both
 # mechanical components of the same H_bar/CV objects being regressed, so
 # sorting on either and finding a steeper slope in the high group is close
 # to guaranteed by construction, independent of whether Chapter 2's
@@ -38,14 +38,15 @@ source("code/empirical_pipeline/00_setup.R")
 if (!exists("vessel_summary") || !exists("vessel_share_panel") || !exists("vessel_year")) load(panel_path)
 
 within_season_path <- file.path(intermediate_dir, "ch3_within_season.rdata")
-if (!exists("churn_by_vessel_year")) load(within_season_path)
+if (!exists("switching_by_vessel_year")) load(within_season_path)
 
 active_vessel_years <- vessel_year %>%
   filter(vessel.year.rev > 0) %>%
   select(Vessel.ADFG.Number, Batch.Year, vessel.year.rev)
 
 # ============================================================================
-# 1. Type classifier, within-season churn averaged over a vessel's years
+# 1. Type classifier, within-season target switching averaged over a
+#    vessel's years
 # ============================================================================
 #
 # Matches chapter3_plan.md Section 9.3 ("averaged over a vessel's years to
@@ -54,16 +55,16 @@ active_vessel_years <- vessel_year %>%
 # responsive-versus-passive contrast (0.87 versus 0.78), not the three
 # separate BH/QAC/Flex regime slopes individually.
 
-vessel_churn <- churn_by_vessel_year %>%
+vessel_switching <- switching_by_vessel_year %>%
   group_by(Vessel.ADFG.Number) %>%
-  summarise(n.years.churn = n(), within.season.churn = mean(weekly.churn), .groups = "drop")
+  summarise(n.years.switching = n(), within.season.switching = mean(weekly.switching), .groups = "drop")
 
-vessel_type <- vessel_churn %>%
-  mutate(vessel.type = if_else(within.season.churn > median(within.season.churn),
+vessel_type <- vessel_switching %>%
+  mutate(vessel.type = if_else(within.season.switching > median(within.season.switching),
                                 "High turnover", "Low turnover"))
 
-cat("Vessels with a within-season churn classifier:", nrow(vessel_type),
-    ", median churn used as the split:", round(median(vessel_churn$within.season.churn), 3), "\n")
+cat("Vessels with a within-season target-switching classifier:", nrow(vessel_type),
+    ", median switching used as the split:", round(median(vessel_switching$within.season.switching), 3), "\n")
 
 # ============================================================================
 # 2. Table 7. Full-panel slope by type
@@ -94,43 +95,47 @@ model_high_fe   <- feols(log(rev.cv) ~ H_bar | prime.fishery, data = filter(tabl
 # reported as the headline Table 7 statistic. The median split above is
 # useful for Figure 8's visual and for Table 8's split-sample design, but it
 # discards information and imposes an arbitrary cutpoint. Interacting
-# H_bar with the continuous churn measure directly tests whether the
+# H_bar with the continuous switching measure directly tests whether the
 # CV-on-H_bar slope RISES with within-season turnover, which is Chapter 2's
 # actual prediction (the slope is a composition-weighted mixture that moves
-# with how responsive the population is), without first collapsing churn
-# into two bins.
-model_interaction <- feols(log(rev.cv) ~ H_bar * within.season.churn | prime.fishery,
+# with how responsive the population is), without first collapsing
+# switching into two bins.
+model_interaction <- feols(log(rev.cv) ~ H_bar * within.season.switching | prime.fishery,
                             data = table7_data, vcov = "hetero")
 
-cat("Interaction coefficient (H_bar x within.season.churn), the headline Table 7 statistic, ",
+cat("Interaction coefficient (H_bar x within.season.switching), the headline Table 7 statistic, ",
     "a positive value says the slope steepens with turnover intensity as Chapter 2 predicts, ",
-    round(coef(model_interaction)["H_bar:within.season.churn"], 4), "\n")
+    round(coef(model_interaction)["H_bar:within.season.switching"], 4), "\n")
+
+# dict relabels within.season.switching for the printed/exported table only.
+table7_dict <- c(within.season.switching = "Target switching")
 
 etable(
   model_low_raw, model_high_raw, model_low_fe, model_high_fe, model_interaction,
   headers = c("Low turnover", "High turnover", "Low turnover (FE)", "High turnover (FE)", "Interaction"),
+  dict = table7_dict,
   tex = TRUE,
   file = file.path(table_dir, "table7_slope_by_turnover_type.tex"),
   replace = TRUE
 )
 
-print(etable(model_low_raw, model_high_raw, model_low_fe, model_high_fe, model_interaction))
+print(etable(model_low_raw, model_high_raw, model_low_fe, model_high_fe, model_interaction, dict = table7_dict))
 
 cat("Wrote table7_slope_by_turnover_type.tex\n")
 
 # ----------------------------------------------------------------------
-# Robustness. Re-classify type on the per-transition-normalized churn
+# Robustness. Re-classify type on the per-transition-normalized switching
 # measure instead of the raw sum, printed only (not written as its own
 # table), to check the median-split result is not an artifact of raw
-# weekly.churn being mechanically larger for vessels that simply fish more
-# weeks (see the comment above weekly.churn.per.transition in
+# weekly.switching being mechanically larger for vessels that simply fish
+# more weeks (see the comment above weekly.switching.per.transition in
 # 06_within_season_reallocation.R).
 # ----------------------------------------------------------------------
 
-vessel_type_normalized <- churn_by_vessel_year %>%
+vessel_type_normalized <- switching_by_vessel_year %>%
   group_by(Vessel.ADFG.Number) %>%
-  summarise(within.season.churn.norm = mean(weekly.churn.per.transition), .groups = "drop") %>%
-  mutate(vessel.type.norm = if_else(within.season.churn.norm > median(within.season.churn.norm),
+  summarise(within.season.switching.norm = mean(weekly.switching.per.transition), .groups = "drop") %>%
+  mutate(vessel.type.norm = if_else(within.season.switching.norm > median(within.season.switching.norm),
                                      "High turnover", "Low turnover"))
 
 table7_data_norm <- vessel_summary %>%
@@ -140,10 +145,10 @@ table7_data_norm <- vessel_summary %>%
 model_low_raw_norm  <- feols(log(rev.cv) ~ H_bar, data = filter(table7_data_norm, vessel.type.norm == "Low turnover"), vcov = "hetero")
 model_high_raw_norm <- feols(log(rev.cv) ~ H_bar, data = filter(table7_data_norm, vessel.type.norm == "High turnover"), vcov = "hetero")
 
-cat("Robustness, per-transition-normalized churn classifier, slope Low turnover:",
+cat("Robustness, per-transition-normalized switching classifier, slope Low turnover:",
     round(coef(model_low_raw_norm)["H_bar"], 4), " High turnover:",
     round(coef(model_high_raw_norm)["H_bar"], 4),
-    " (raw-churn classifier gave Low:", round(coef(model_low_raw)["H_bar"], 4),
+    " (raw-switching classifier gave Low:", round(coef(model_low_raw)["H_bar"], 4),
     " High:", round(coef(model_high_raw)["H_bar"], 4), ")\n")
 
 # ============================================================================
@@ -153,7 +158,7 @@ cat("Robustness, per-transition-normalized churn classifier, slope Low turnover:
 #
 # Severs the mechanical link between classifier and outcome, chapter3_plan.md
 # Section 9.3's key robustness check for this section. Type comes from
-# within-season churn in each vessel's OWN first half of active years, the
+# within-season target switching in each vessel's OWN first half of active years, the
 # regression is estimated on H_bar/rev.cv built from ONLY that vessel's
 # second half, computed here from scratch (not vessel_summary, which is
 # whole-panel) the same way vessel_summary itself is built, sd/mean of
@@ -174,12 +179,12 @@ vessel_year_ordinal <- vessel_share_panel %>%
 first_half_years  <- vessel_year_ordinal %>% filter(half == "first")  %>% select(Vessel.ADFG.Number, Batch.Year)
 second_half_years <- vessel_year_ordinal %>% filter(half == "second") %>% select(Vessel.ADFG.Number, Batch.Year)
 
-vessel_type_first_half <- churn_by_vessel_year %>%
+vessel_type_first_half <- switching_by_vessel_year %>%
   semi_join(first_half_years, by = c("Vessel.ADFG.Number", "Batch.Year")) %>%
   group_by(Vessel.ADFG.Number) %>%
-  summarise(within.season.churn.first.half = mean(weekly.churn), .groups = "drop") %>%
+  summarise(within.season.switching.first.half = mean(weekly.switching), .groups = "drop") %>%
   mutate(vessel.type = if_else(
-    within.season.churn.first.half > median(within.season.churn.first.half),
+    within.season.switching.first.half > median(within.season.switching.first.half),
     "High turnover", "Low turnover"
   ))
 

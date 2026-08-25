@@ -86,7 +86,7 @@ existing code).
 03_figure1_figure2.R              # Figure 1, Figure 2 (needs the CFEC vessel register, see below)
 04_table3.R                       # Table 3
 05_table4_figure3.R               # Table 4, Figure 3, Figure 3 appendix (specialists)
-06_within_season_reallocation.R   # Figure 5, Figure 6, Table 6
+06_within_season_reallocation.R   # Figure 5 (+ pseudo-log version), Figure 6, Table 6
 07_behavioral_heterogeneity.R     # Table 7, Table 8, Figure 8, Figure 9 (appendix)
 08_state_contingent_activation.R  # Table 10, Figure 10, Table 11
 09_seasonal_overlap.R             # Table 12, Figure 11
@@ -114,7 +114,7 @@ day-of-year `%/% 7` bucket, 1-53), which is a proxy, not ADFG's own
 regulatory statistical-week code, see that function's comment for why.
 `06_within_season_reallocation.R`
 additionally saves `intermediate data/ch3_within_season.rdata`
-(`churn_by_vessel_year`, `season_windows`), which `07_behavioral_heterogeneity.R`
+(`switching_by_vessel_year`, `season_windows`), which `07_behavioral_heterogeneity.R`
 loads rather than redoing that reload, so 06 needs to run before 07. 08 does
 its own independent reload and does not depend on 06 or 07, but now saves
 `intermediate data/ch3_activation.rdata` (`activation_data`), which
@@ -257,8 +257,8 @@ point it is made in the code.
   Add that file before trusting any dollar-denominated output across the
   1991-2021 panel, `chapter3_plan.md` Section 9.3 explains why CPI rather
   than a seafood price index is the right choice here.
-- **Section 5's within-season churn skips the cross-fishery co-participation
-  network and Figure 7 entirely.** `chapter3_plan.md` Section 0.1 scopes
+- **Section 5's within-season target switching skips the cross-fishery
+  co-participation network and Figure 7 entirely.** `chapter3_plan.md` Section 0.1 scopes
   that network (Kroetz et al. 2019, Addicott et al. 2018 style) as the
   weight for switch events, which only feeds the `[maybe]` Figure 7 and
   Section 7's `[maybe]` Table 12, not Figure 5, Figure 6, or Table 6. None of
@@ -293,16 +293,16 @@ point it is made in the code.
   top of this file) changed several specifications, each explained inline
   where it happens.** `06_within_season_reallocation.R`, weights season
   windows by landed pounds rather than revenue (a timing question does not
-  need a price signal in it), adds `weekly.churn.per.transition` (churn is
-  mechanically larger for a vessel that simply fishes more weeks, this
-  divides by the number of available week-to-week transitions instead),
-  and Table 6 now clusters on `Vessel.ADFG.Number` explicitly (fixest's
-  default would cluster on `prime.fishery`, too few fishery classes for
-  reliable inference), controls for mean active weeks, and adds a
-  vessel-fixed-effects robustness column. `07_behavioral_heterogeneity.R`
-  adds a continuous `H_bar * within.season.churn` interaction to Table 7 as
-  the headline statistic (the median split is now secondary, kept for
-  Figure 8's visual), a robustness refit using the normalized churn
+  need a price signal in it), adds `weekly.switching.per.transition`
+  (switching is mechanically larger for a vessel that simply fishes more
+  weeks, this divides by the number of available week-to-week transitions
+  instead), and Table 6 now clusters on `Vessel.ADFG.Number` explicitly
+  (fixest's default would cluster on `prime.fishery`, too few fishery
+  classes for reliable inference), controls for mean active weeks, and adds
+  a vessel-fixed-effects robustness column. `07_behavioral_heterogeneity.R`
+  adds a continuous `H_bar * within.season.switching` interaction to Table 7
+  as the headline statistic (the median split is now secondary, kept for
+  Figure 8's visual), a robustness refit using the normalized switching
   classifier, a stricter-floor robustness refit for Table 8, and
   heteroskedasticity-robust standard errors throughout (both scripts'
   cross-sectional models had been reporting iid OLS SEs, which understate

@@ -24,7 +24,7 @@
 # Statistical.Week or Week.Ending.Date column (checked directly against the
 # real object on the server), so Statistical.Week below is DERIVED from
 # Date.Landed via derive_statistical_week() in 00_setup.R, see the comment
-# there for the exact definition and why. Saves churn_by_vessel_year and
+# there for the exact definition and why. Saves switching_by_vessel_year and
 # season_windows to intermediate data/ch3_within_season.rdata so
 # 07_behavioral_heterogeneity.R does not have to redo this reload.
 
@@ -54,6 +54,16 @@ catch_data_temp <- catch_data_temp %>% filter(!(Vessel.ADFG.Number %in% BAD_VESS
 catch_data_temp$Vessel.ADFG.Number <- as.integer(catch_data_temp$Vessel.ADFG.Number)
 catch_data_temp[["CFEC.Value..Detail."]][is.na(catch_data_temp[["CFEC.Value..Detail."]])] <- 0
 
+# Pounds..Detail. loads as an R integer. A single week's sum fits, but a
+# season's worth of weeks cumsum()-ed together for a high-volume
+# fishery-year can exceed 32-bit int range partway through, after which
+# every later cumsum() entry in that group silently becomes NA rather than
+# erroring, confirmed against a real run (12 summarise() warnings pointing
+# at weighted_percentile_week()'s cumsum(), 5 fishery-years missing from
+# Figure 6 as a result). Coercing to double here, before anything sums it,
+# is cheap and removes the ceiling entirely.
+catch_data_temp[["Pounds..Detail."]] <- as.numeric(catch_data_temp[["Pounds..Detail."]])
+
 catch_data_temp <- catch_data_temp %>%
   filter(Batch.Year >= MIN_YEAR, Batch.Year <= MAX_YEAR) %>%
   mutate(
@@ -77,7 +87,7 @@ cat("Ticket rows entering the within-season panel:", nrow(catch_data_temp), "\n"
 #
 # MIN_LANDINGS restricts to vessel-fishery-years with at least a handful of
 # ticket rows, per chapter3_plan.md Section 9.3 ("single-delivery permits
-# produce degenerate churn measures"). CHECK this threshold once run on real
+# produce degenerate switching measures"). CHECK this threshold once run on real
 # data, it is a judgment call, not a fact.
 MIN_LANDINGS <- 3
 
@@ -93,7 +103,8 @@ vessel_week_fishery <- catch_data_temp %>%
   summarise(revenue = sum(CFEC.Value..Detail., na.rm = TRUE), .groups = "drop")
 
 # ============================================================================
-# 3. Weekly fishery-share churn (Figure 5, and Section 6's type classifier)
+# 3. Weekly fishery-share target switching (Figure 5, and Section 6's type
+#    classifier)
 # ============================================================================
 #
 # s_jw = vessel i's revenue in fishery j during week w, over i's total
@@ -119,50 +130,52 @@ n_active_weeks <- vessel_year_week_share %>%
   distinct(Vessel.ADFG.Number, Batch.Year, Statistical.Week) %>%
   count(Vessel.ADFG.Number, Batch.Year, name = "n.active.weeks")
 
-# Churn is summed over CONSECUTIVE ACTIVE weeks, not consecutive calendar
-# weeks. A vessel active in week 5 and next active in week 20 (an off-season
-# gap, salmon runs do not run year-round) gets one churn increment between
-# weeks 5 and 20, not fifteen phantom zero-to-zero increments for the weeks
-# in between it was not fishing at all. Comparing calendar-consecutive weeks
-# instead would manufacture "reallocation" out of nothing but a seasonal
-# gap. A vessel-year with only one active week has no consecutive pair to
-# compare and drops out of the summarise below entirely, not zero-filled,
-# since "no turnover measurable" is not the same claim as "turnover was
-# zero."
-churn_by_vessel_year <- vessel_year_week_share %>%
+# Target switching is summed over CONSECUTIVE ACTIVE weeks, not consecutive
+# calendar weeks. A vessel active in week 5 and next active in week 20 (an
+# off-season gap, salmon runs do not run year-round) gets one increment of
+# switching between weeks 5 and 20, not fifteen phantom zero-to-zero
+# increments for the weeks in between it was not fishing at all. Comparing
+# calendar-consecutive weeks instead would manufacture "reallocation" out of
+# nothing but a seasonal gap. A vessel-year with only one active week has no
+# consecutive pair to compare and drops out of the summarise below
+# entirely, not zero-filled, since "no turnover measurable" is not the same
+# claim as "turnover was zero."
+switching_by_vessel_year <- vessel_year_week_share %>%
   arrange(Vessel.ADFG.Number, Batch.Year, Fishery, Statistical.Week) %>%
   group_by(Vessel.ADFG.Number, Batch.Year, Fishery) %>%
   mutate(share.lag = lag(share, order_by = Statistical.Week)) %>%
   ungroup() %>%
   filter(!is.na(share.lag)) %>%
   group_by(Vessel.ADFG.Number, Batch.Year) %>%
-  summarise(weekly.churn = sum(abs(share - share.lag)), .groups = "drop") %>%
+  summarise(weekly.switching = sum(abs(share - share.lag)), .groups = "drop") %>%
   left_join(n_active_weeks, by = c("Vessel.ADFG.Number", "Batch.Year")) %>%
-  # weekly.churn is a SUM over consecutive-active-week transitions, so it is
-  # mechanically larger for a vessel that simply fishes more weeks, holding
-  # per-week reallocation intensity fixed, a vessel active 20 weeks has up
-  # to 19 transitions to accumulate churn over, one active 3 weeks has only
-  # 2. Active weeks correlate with vessel size/activity, which also
-  # correlate with H_bar and CV, so the raw sum risks the Section 6
-  # classifier partly capturing "fishes more" rather than "reallocates
-  # more." weekly.churn.per.transition divides by the number of available
-  # transitions (n.active.weeks - 1, always >= 1 here since every row
-  # surviving the filter above has at least one valid share.lag) to give a
-  # per-transition intensity instead. n.active.weeks itself is also carried
-  # forward as a Table 6 control below rather than left unused.
-  mutate(weekly.churn.per.transition = weekly.churn / (n.active.weeks - 1))
+  # weekly.switching is a SUM over consecutive-active-week transitions, so
+  # it is mechanically larger for a vessel that simply fishes more weeks,
+  # holding per-week reallocation intensity fixed, a vessel active 20 weeks
+  # has up to 19 transitions to accumulate switching over, one active 3
+  # weeks has only 2. Active weeks correlate with vessel size/activity,
+  # which also correlate with H_bar and CV, so the raw sum risks the
+  # Section 6 classifier partly capturing "fishes more" rather than
+  # "reallocates more." weekly.switching.per.transition divides by the
+  # number of available transitions (n.active.weeks - 1, always >= 1 here
+  # since every row surviving the filter above has at least one valid
+  # share.lag) to give a per-transition intensity instead. n.active.weeks
+  # itself is also carried forward as a Table 6 control below rather than
+  # left unused.
+  mutate(weekly.switching.per.transition = weekly.switching / (n.active.weeks - 1))
 
-cat("Vessel-years with a computable weekly churn measure:", nrow(churn_by_vessel_year), "\n")
+cat("Vessel-years with a computable weekly switching measure:", nrow(switching_by_vessel_year), "\n")
 
-figure5 <- churn_by_vessel_year %>%
-  ggplot(aes(x = weekly.churn)) +
+figure5 <- switching_by_vessel_year %>%
+  ggplot(aes(x = weekly.switching)) +
   geom_histogram(bins = 50, fill = "steelblue", color = "white") +
   labs(
-    # Full definition (Statistical.Week basis, the <3-landings exclusion)
+    # Full definition (target switching = sum of |share change| across
+    # active weeks, Statistical.Week basis, the <3-landings exclusion)
     # belongs in the caption, not a subtitle this figure's width can't hold.
     title = "Distribution of within-season turnover",
     subtitle = "One observation per vessel-year",
-    x = "Weekly fishery-share churn within a season (sum of |share change| across active weeks)",
+    x = "Weekly target switching",
     y = "Vessel-years"
   ) +
   theme_minimal()
@@ -171,6 +184,33 @@ ggsave(file.path(figure_dir, "figure5_weekly_turnover_distribution.png"),
        figure5, width = 7, height = 5, dpi = 300)
 
 cat("Wrote figure5_weekly_turnover_distribution.png\n")
+
+# Same distribution, pseudo-log x-axis, added as an ADDITIONAL figure
+# alongside figure5 above, not a replacement. Most vessel-years sit at or
+# near weekly.switching = 0 (single-fishery specialists, whose weekly mix
+# never changes), while reallocating vessels stretch into a long right tail
+# as a raw sum, so figure5's linear scale crams almost everything into the
+# first bin or two. scales::pseudo_log_trans() behaves like log10() for
+# large values but stays linear near zero (unlike an actual log, it is
+# defined AT zero, so the zero-switching spike does not have to be dropped
+# or offset), which keeps both the zero mass and the long tail legible in
+# one plot.
+figure5_pseudolog <- switching_by_vessel_year %>%
+  ggplot(aes(x = weekly.switching)) +
+  geom_histogram(bins = 50, fill = "steelblue", color = "white") +
+  scale_x_continuous(trans = scales::pseudo_log_trans(base = 10)) +
+  labs(
+    title = "Distribution of within-season turnover, pseudo-log scale",
+    subtitle = "One observation per vessel-year",
+    x = "Weekly target switching (pseudo-log scale)",
+    y = "Vessel-years"
+  ) +
+  theme_minimal()
+
+ggsave(file.path(figure_dir, "figure5b_weekly_turnover_pseudolog.png"),
+       figure5_pseudolog, width = 7, height = 5, dpi = 300)
+
+cat("Wrote figure5b_weekly_turnover_pseudolog.png\n")
 
 # ============================================================================
 # 4. Empirical season windows per fishery-year (Figure 6)
@@ -197,7 +237,11 @@ MIN_SEASON_LANDINGS <- 10
 weighted_percentile_week <- function(week, weight, p) {
   ord <- order(week)
   week <- week[ord]
-  weight <- weight[ord]
+  # as.numeric() defends against integer overflow in cumsum() below, even
+  # though the caller already coerces Pounds..Detail. to double on load,
+  # this function has no other way to guarantee whatever it is handed is
+  # not integer-typed.
+  weight <- as.numeric(weight[ord])
   cum_share <- cumsum(weight) / sum(weight)
   week[which(cum_share >= p)[1]]
 }
@@ -256,7 +300,7 @@ ggsave(file.path(figure_dir, "figure6_season_windows.png"),
 cat("Wrote figure6_season_windows.png\n")
 
 # ============================================================================
-# 5. Table 6. Vessel x period Phi and rev.cv on within-season churn
+# 5. Table 6. Vessel x period Phi and rev.cv on within-season target switching
 # ============================================================================
 #
 # vessel_period_summary (loaded from panel_path) already computes Phi and
@@ -278,29 +322,29 @@ period_of <- function(batch_year) {
   period_bounds$period[findInterval(batch_year, period_bounds$start)]
 }
 
-churn_by_vessel_period <- churn_by_vessel_year %>%
+switching_by_vessel_period <- switching_by_vessel_year %>%
   mutate(period = period_of(Batch.Year)) %>%
   group_by(Vessel.ADFG.Number, period) %>%
   summarise(
-    n.years.churn        = n(),
-    within.season.churn  = mean(weekly.churn),
-    mean.active.weeks    = mean(n.active.weeks),
+    n.years.switching        = n(),
+    within.season.switching  = mean(weekly.switching),
+    mean.active.weeks        = mean(n.active.weeks),
     .groups = "drop"
   )
 
 table6_data <- vessel_period_summary %>%
   filter(meets.min.years.period, is.finite(rev.cv)) %>%
-  inner_join(churn_by_vessel_period, by = c("Vessel.ADFG.Number", "period")) %>%
+  inner_join(switching_by_vessel_period, by = c("Vessel.ADFG.Number", "period")) %>%
   left_join(vessel_summary %>% select(Vessel.ADFG.Number, prime.fishery), by = "Vessel.ADFG.Number")
 
 cat("Vessel x period observations entering Table 6:", nrow(table6_data), "\n")
 
-# mean.active.weeks is added as a control alongside within.season.churn,
-# not left computed-and-unused. weekly.churn is mechanically larger for a
-# vessel that simply fishes more weeks (more consecutive-week transitions
-# to accumulate churn over), and active weeks correlate with vessel
+# mean.active.weeks is added as a control alongside within.season.switching,
+# not left computed-and-unused. weekly.switching is mechanically larger for
+# a vessel that simply fishes more weeks (more consecutive-week transitions
+# to accumulate switching over), and active weeks correlate with vessel
 # size/activity, which also correlate with Phi and CV, so without this
-# control the churn coefficient risked partly reading "fishes more" as
+# control the switching coefficient risked partly reading "fishes more" as
 # "reallocates more."
 #
 # Clustered on Vessel.ADFG.Number explicitly, not left to fixest's default.
@@ -309,44 +353,50 @@ cat("Vessel x period observations entering Table 6:", nrow(table6_data), "\n")
 # too few clusters for reliable inference, and it would not account for the
 # same vessel appearing in up to three period rows either. Vessel is both
 # the repeated unit and a much larger cluster count.
-model_phi_on_churn <- feols(Phi ~ within.season.churn + mean.active.weeks | prime.fishery + period,
-                             data = table6_data, cluster = ~Vessel.ADFG.Number)
-model_cv_on_churn  <- feols(rev.cv ~ within.season.churn + mean.active.weeks | prime.fishery + period,
-                             data = table6_data, cluster = ~Vessel.ADFG.Number)
+model_phi_on_switching <- feols(Phi ~ within.season.switching + mean.active.weeks | prime.fishery + period,
+                                 data = table6_data, cluster = ~Vessel.ADFG.Number)
+model_cv_on_switching  <- feols(rev.cv ~ within.season.switching + mean.active.weeks | prime.fishery + period,
+                                 data = table6_data, cluster = ~Vessel.ADFG.Number)
 
 # Within-vessel robustness columns, vessel fixed effects in place of
 # prime.fishery, identified only off vessels with two or more valid
-# periods. This absorbs any fixed vessel-level tendency (a vessel that is
-# just generally high-churn and high-Phi throughout) and asks whether MORE
-# churn in one of ITS OWN periods goes with MORE Phi/CV in that same
-# period, a stronger within-unit version of the same test, at the cost of
-# dropping single-period vessels.
-model_phi_vessel_fe <- feols(Phi ~ within.season.churn + mean.active.weeks | Vessel.ADFG.Number + period,
+# periods. This absorbs any fixed vessel-level tendency (a vessel that just
+# generally switches a lot and runs high-Phi throughout) and asks whether
+# MORE switching in one of ITS OWN periods goes with MORE Phi/CV in that
+# same period, a stronger within-unit version of the same test, at the cost
+# of dropping single-period vessels.
+model_phi_vessel_fe <- feols(Phi ~ within.season.switching + mean.active.weeks | Vessel.ADFG.Number + period,
                               data = table6_data, cluster = ~Vessel.ADFG.Number)
-model_cv_vessel_fe  <- feols(rev.cv ~ within.season.churn + mean.active.weeks | Vessel.ADFG.Number + period,
+model_cv_vessel_fe  <- feols(rev.cv ~ within.season.switching + mean.active.weeks | Vessel.ADFG.Number + period,
                               data = table6_data, cluster = ~Vessel.ADFG.Number)
 
+# dict relabels within.season.switching for the printed/exported table only,
+# the column itself stays within.season.switching so nothing else in this
+# script needs to change if the display label is tweaked again later.
+table6_dict <- c(within.season.switching = "Target switching", mean.active.weeks = "Active weeks (mean)")
+
 etable(
-  model_phi_on_churn, model_cv_on_churn, model_phi_vessel_fe, model_cv_vessel_fe,
+  model_phi_on_switching, model_cv_on_switching, model_phi_vessel_fe, model_cv_vessel_fe,
   headers = c("Phi", "rev.cv", "Phi (vessel FE)", "rev.cv (vessel FE)"),
+  dict = table6_dict,
   tex = TRUE,
-  file = file.path(table_dir, "table6_annual_instability_on_within_season_churn.tex"),
+  file = file.path(table_dir, "table6_annual_instability_on_within_season_switching.tex"),
   replace = TRUE
 )
 
-print(etable(model_phi_on_churn, model_cv_on_churn, model_phi_vessel_fe, model_cv_vessel_fe))
+print(etable(model_phi_on_switching, model_cv_on_switching, model_phi_vessel_fe, model_cv_vessel_fe, dict = table6_dict))
 
-cat("Wrote table6_annual_instability_on_within_season_churn.tex\n")
+cat("Wrote table6_annual_instability_on_within_season_switching.tex\n")
 
 # ============================================================================
 # 6. Save
 # ============================================================================
 #
-# churn_by_vessel_year is the object 07_behavioral_heterogeneity.R needs for
-# the Section 6 type classifier, saved separately from ch3_panel.rdata since
-# it comes from a ticket-level reload this script does and 01_build_panel.R
-# does not.
+# switching_by_vessel_year is the object 07_behavioral_heterogeneity.R needs
+# for the Section 6 type classifier, saved separately from ch3_panel.rdata
+# since it comes from a ticket-level reload this script does and
+# 01_build_panel.R does not.
 
 within_season_path <- file.path(intermediate_dir, "ch3_within_season.rdata")
-save(churn_by_vessel_year, season_windows, file = within_season_path)
+save(switching_by_vessel_year, season_windows, file = within_season_path)
 cat("Saved within-season objects to", within_season_path, "\n")
