@@ -65,6 +65,20 @@ GEAR_COLUMNS <- c(
   "Double.Otter.Trawl", "Herring.Gill.Net", "Pair.Trawl", "Diving.Hand.Picking"
 )
 
+# Figure 2's x-axis order, gear families with similar names grouped next to
+# each other (the two seines, the three gill nets, the two trolls, the four
+# trawls) rather than the plain alphabetical order a character x-axis would
+# default to. Fish Wheel omitted, it is filtered out of fig2_data below.
+# Unclassified pinned last as the catch-all it is, not a gear family.
+GEAR_CLASS_ORDER <- c(
+  "Purse Seine", "Beach Seine",
+  "Drift Gill Net", "Set Gill Net", "Herring Gill Net",
+  "Hand Troll", "Power Troll",
+  "Otter Trawl", "Double Otter Trawl", "Beam Trawl", "Pair Trawl",
+  "Long Line", "Pots", "Scallop Dredge", "Mechanical Jig",
+  "Diving Hand Picking", "Unclassified"
+)
+
 # Picks the first gear dummy coded "Yes" for a vessel-year, in the priority
 # order of GEAR_COLUMNS above. A vessel rigged for more than one gear type is
 # assigned to whichever comes first in that list, which is an arbitrary but
@@ -126,6 +140,8 @@ if (file.exists(vessel_register_path)) {
   # itself is untouched, so this only affects what gets plotted here.
   fig2_data <- fig2_data %>% filter(gear_class != "Fish Wheel")
   cat("Vessels excluded from Figure 2 for Fish Wheel gear class:", n_fish_wheel, "\n")
+
+  fig2_data <- fig2_data %>% mutate(gear_class = factor(gear_class, levels = GEAR_CLASS_ORDER))
 
   figure2 <- fig2_data %>%
     ggplot(aes(x = gear_class, y = mean.unused.count.share, fill = length.bin)) +
