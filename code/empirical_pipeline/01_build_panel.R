@@ -474,7 +474,17 @@ vessel_summary <- vessel_share_panel %>%
   summarise(
     n.years  = n_distinct(Batch.Year),
     H_bar    = mean(tapply(share, Batch.Year, function(s) sum(s^2))),
-    H_LR     = sum(unique(mean.share.fishery)^2),
+    # H_LR = sum_j (mean_t s_ijt)^2 is a sum over FISHERIES, not over
+    # distinct VALUES, sum(unique(mean.share.fishery)^2) silently collapsed
+    # any two fisheries that happened to share the exact same long-run mean
+    # share into one term, understating H_LR (and inflating Phi = H_bar -
+    # H_LR) for exactly the vessels this chapter cares most about, a vessel
+    # that alternates between two fisheries in an even split gets identical
+    # means by construction. mean.share.fishery is already constant within
+    # a Fishery here (joined in from vessel_mean_share above), so
+    # [!duplicated(Fishery)] picks exactly one row per fishery regardless
+    # of whether the VALUES happen to tie.
+    H_LR     = sum(mean.share.fishery[!duplicated(Fishery)]^2),
     .groups = "drop"
   ) %>%
   mutate(Phi = H_bar - H_LR) %>%
@@ -569,7 +579,10 @@ vessel_period_summary <- vessel_period_share_panel %>%
   summarise(
     n.years.period = n_distinct(Batch.Year),
     H_bar          = mean(tapply(share, Batch.Year, function(s) sum(s^2))),
-    H_LR           = sum(unique(mean.share.fishery)^2),
+    # See vessel_summary above for why this sums over distinct fisheries
+    # ([!duplicated(Fishery)]), not sum(unique(mean.share.fishery)^2),
+    # which collapses fisheries that tie on long-run mean share.
+    H_LR           = sum(mean.share.fishery[!duplicated(Fishery)]^2),
     .groups = "drop"
   ) %>%
   mutate(Phi = H_bar - H_LR) %>%
@@ -709,7 +722,9 @@ owner_summary <- owner_share_panel %>%
   summarise(
     n.years = n_distinct(Batch.Year),
     H_bar   = mean(tapply(share, Batch.Year, function(s) sum(s^2))),
-    H_LR    = sum(unique(mean.share.fishery)^2),
+    # See vessel_summary in Section 6 for why this sums over distinct
+    # fisheries ([!duplicated(Fishery)]), not sum(unique(mean.share.fishery)^2).
+    H_LR    = sum(mean.share.fishery[!duplicated(Fishery)]^2),
     .groups = "drop"
   ) %>%
   mutate(Phi = H_bar - H_LR) %>%
@@ -747,7 +762,9 @@ owner_period_summary <- owner_period_share_panel %>%
   summarise(
     n.years.period = n_distinct(Batch.Year),
     H_bar          = mean(tapply(share, Batch.Year, function(s) sum(s^2))),
-    H_LR           = sum(unique(mean.share.fishery)^2),
+    # See vessel_summary in Section 6 for why this sums over distinct
+    # fisheries ([!duplicated(Fishery)]), not sum(unique(mean.share.fishery)^2).
+    H_LR           = sum(mean.share.fishery[!duplicated(Fishery)]^2),
     .groups = "drop"
   ) %>%
   mutate(Phi = H_bar - H_LR) %>%
@@ -774,6 +791,7 @@ save(
   owner_period_summary,
   period_bounds,
   match_diag, fleet_mean_revenue,
+  MAX_YEAR,
   file = panel_path
 )
 cat("Saved panel to", panel_path, "\n")

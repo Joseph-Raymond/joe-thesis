@@ -225,14 +225,9 @@ passive_benchmark_scatter <- function(data, subtitle) {
 
 figure3 <- fig3_data %>%
   filter(!is.specialist) %>%
-  passive_benchmark_scatter(
-    paste(
-      "Multi-fishery vessels only. Benchmark holds each vessel's own long-run",
-      "fishery weights fixed against actual fleet-wide revenue, same years and",
-      "CV formula as realized. Dashed line is the 45-degree reference.",
-      "Single-fishery specialists are shown separately in the appendix."
-    )
-  )
+  # Full benchmark construction and the 45-degree reference belong in the
+  # caption, this figure's width can't hold the multi-sentence version.
+  passive_benchmark_scatter("Multi-fishery vessels only")
 
 ggsave(file.path(figure_dir, "figure3_passive_benchmark.png"),
        figure3, width = 7, height = 6, dpi = 300)
@@ -251,13 +246,9 @@ cat("Wrote figure3_passive_benchmark.png (multi-fishery vessels)\n")
 
 figure3_appendix <- fig3_data %>%
   filter(is.specialist) %>%
-  passive_benchmark_scatter(
-    paste(
-      "Single-fishery specialists only (Phi = 0 by construction). Any gap to",
-      "the 45-degree line here is idiosyncratic noise around the fleet mean",
-      "of the one fishery held, not reallocation, there is nothing to reallocate."
-    )
-  )
+  # Why a gap here is idiosyncratic noise rather than reallocation risk
+  # (Phi = 0 by construction) belongs in the caption, not this subtitle.
+  passive_benchmark_scatter("Single-fishery specialists only")
 
 ggsave(file.path(figure_dir, "figure3_appendix_specialists.png"),
        figure3_appendix, width = 7, height = 6, dpi = 300)
@@ -339,8 +330,9 @@ figure3b <- gap_by_phi %>%
   ) +
   scale_color_manual(values = c("TRUE" = "gray40", "FALSE" = "steelblue"), guide = "none") +
   labs(
-    title = "Gap between realized and passive benchmark CV, by reallocation intensity",
-    subtitle = "Specialists (Phi = 0) shown separately from multi-fishery vessels, grouped into equal-sized bins by Phi (low to high). Error bars are 95% CI on the mean gap.",
+    # Bin construction and the 95% CI error bars belong in the caption.
+    title = "Gap between realized and passive-benchmark CV",
+    subtitle = "By reallocation intensity (Phi)",
     x = "Reallocation intensity (Phi), specialists then increasing bins",
     y = "Mean gap (realized CV − passive CV)"
   ) +

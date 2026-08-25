@@ -1,9 +1,47 @@
-# Chapter 3 empirical pipeline (Sections 2-4)
+# Chapter 3 empirical pipeline (Sections 2-7)
 
-Reproducible R scripts for the figures and tables in `Chapter3_outline.md` up
-through Figure 3 and Table 4, that is, Section 2 (Table 1, Table 2), Section 3
-(Figure 1, Figure 2, Table 3), and Section 4 (Table 4, Figure 3). Table 5,
-Figure 4, and everything from Section 5 onward are not built here.
+Reproducible R scripts for the figures and tables in `Chapter3_outline.md`,
+Section 2 (Table 1, Table 2), Section 3 (Figure 1, Figure 2, Table 3),
+Section 4 (Table 4, Figure 3), Section 5 (Figure 5, Figure 6, Table 6),
+Section 6 (Table 7, Table 8, Figure 8, Figure 9), and Section 7 (Table 10,
+Figure 10, Table 11, Table 12). Every item marked `[maybe]` in the outline
+(Table 3b, Figure 4, Figure 7, Table 9) and the "if I have time" block at
+the end of Section 6 are skipped, not built here. Table 2 and Table 12 are
+the two exceptions, Table 2 turned out cheap enough to build alongside
+Table 1, and Table 12 became buildable once `09_seasonal_overlap.R` gave it
+an interaction ingredient neither originally-scoped one (the Section 5
+co-participation network, the Figure 3 return correlation) ever was, see
+that script's header. `09_seasonal_overlap.R` also builds Figure 11, which
+is not in the outline at all, a re-cut of Section 3's wedge by whether a
+held-but-unfished permit's season conflicted with what the vessel actually
+fished that year.
+
+## Rerun 01 through 08 before trusting ANY existing output, `H_LR` was wrong
+
+A methodological review caught a real bug in `H_LR`, present since before this
+pipeline's Section 5-7 additions and used by every script that reads
+`vessel_summary`/`vessel_period_summary`/`owner_summary`/`owner_period_summary`.
+`H_LR = sum(unique(mean.share.fishery)^2)` sums over DISTINCT VALUES of the
+long-run mean share, not over distinct FISHERIES the way `H_LR = sum_j
+(mean_t s_ijt)^2` requires, so any two fisheries that happen to land on the
+same long-run mean share silently collapsed into one term. This is not a
+floating-point curiosity, a vessel that alternates between two fisheries in
+an even split gets IDENTICAL means by construction (a synthetic check found
+`H_LR = 0.25` instead of the correct `0.5` for a vessel splitting its years
+evenly between two fisheries), which understates `H_LR` and inflates `Phi =
+H_bar - H_LR` for exactly the switcher vessels this chapter is about. Fixed
+in `01_build_panel.R` (all four locations, vessel/vessel-period/owner/owner-period)
+by summing `mean.share.fishery[!duplicated(Fishery)]^2` instead.
+
+This means every already-generated table and figure that touches `Phi`
+(Table 4, Figure 3b, and anything a future run of Table 6/Figure 9 would
+produce) was built on a biased `Phi` and needs to be regenerated. The
+existing output in `Chpt3/output/` (and the numbers already written into
+`writeup/chapter3_writeup.tex`) predate this fix. Re-run `01_build_panel.R`
+first, then everything downstream.
+
+A second bug, in `08_state_contingent_activation.R`'s leave-one-out shock,
+is also fixed, see the "Section 7" bullet below.
 
 ## This cannot be run locally
 
@@ -29,8 +67,11 @@ vessel ID, 0.7% of ticket rows zero-filled, 87% of those zero-filled rows
 carrying positive landed weight), catching and fixing two real bugs along
 the way (`ticket_serial_match_rate` was measuring field completeness rather
 than an actual register join, and `case_match()` triggered a dplyr
-deprecation warning on the server's dplyr version). `03_figure1_figure2.R`
-through `05_table4_figure3.R` have not been run yet. Search for "CHECK:"
+deprecation warning on the server's dplyr version). `00_setup.R` through
+`05_table4_figure3.R` have since been run against real data and produced the
+output in `Chpt3/output/`, including the trailing-year coverage fix in
+Section 2b of `01_build_panel.R`. `06_within_season_reallocation.R` through
+`08_state_contingent_activation.R` have not been run yet. Search for "CHECK:"
 comments and read every script's header before trusting output from those,
 several column names and one file path are inferred rather than confirmed
 against real headers (`chapter3_plan.md` Section 1 says the same about the
@@ -39,12 +80,16 @@ existing code).
 ## Run order
 
 ```
-00_setup.R              # sourced automatically by every other script, not run directly
-01_build_panel.R        # builds intermediate data/ch3_panel.rdata, run this first
-02_table1_table2.R      # Table 1, Table 2
-03_figure1_figure2.R    # Figure 1, Figure 2 (needs the CFEC vessel register, see below)
-04_table3.R             # Table 3
-05_table4_figure3.R     # Table 4, Figure 3
+00_setup.R                       # sourced automatically by every other script, not run directly
+01_build_panel.R                 # builds intermediate data/ch3_panel.rdata, run this first
+02_table1_table2.R                # Table 1, Table 2
+03_figure1_figure2.R              # Figure 1, Figure 2 (needs the CFEC vessel register, see below)
+04_table3.R                       # Table 3
+05_table4_figure3.R               # Table 4, Figure 3, Figure 3 appendix (specialists)
+06_within_season_reallocation.R   # Figure 5, Figure 6, Table 6
+07_behavioral_heterogeneity.R     # Table 7, Table 8, Figure 8, Figure 9 (appendix)
+08_state_contingent_activation.R  # Table 10, Figure 10, Table 11
+09_seasonal_overlap.R             # Table 12, Figure 11
 ```
 
 Each of 02 through 05 loads `intermediate data/ch3_panel.rdata` if the panel
@@ -52,6 +97,19 @@ objects are not already in memory, so they can be run independently in a
 fresh session as long as 01 has been run at least once. Outputs land in
 `Chpt3/output/tables/` (`.tex`, via `xtable` and `fixest::etable`) and
 `Chpt3/output/figures/` (`.png`, via `ggplot2`).
+
+06 through 09 also need `01_build_panel.R` to have run at least once (for
+`period_bounds`, `vessel_summary`, `vessel_fishery_year`, `vessel_share_panel`,
+`vessel_year`, and `MAX_YEAR`), but reload the raw
+`intermediate data/catch_data_temp.rdata` ticket file directly on top of
+that, since `Statistical.Week` and `Pounds..Detail.` never make it into the
+saved panel, only annual revenue aggregates do. `06_within_season_reallocation.R`
+additionally saves `intermediate data/ch3_within_season.rdata`
+(`churn_by_vessel_year`, `season_windows`), which `07_behavioral_heterogeneity.R`
+loads rather than redoing that reload, so 06 needs to run before 07. 08 does
+its own independent reload and does not depend on 06 or 07, but now saves
+`intermediate data/ch3_activation.rdata` (`activation_data`), which
+`09_seasonal_overlap.R` loads for Table 12, so 08 needs to run before 09.
 
 `01_build_panel.R` also saves `vessel_period_summary`/`owner_period_summary`,
 `H_bar`/`H_LR`/`Phi`/`rev.cv` computed separately within three roughly-equal
@@ -190,6 +248,68 @@ point it is made in the code.
   Add that file before trusting any dollar-denominated output across the
   1991-2021 panel, `chapter3_plan.md` Section 9.3 explains why CPI rather
   than a seafood price index is the right choice here.
+- **Section 5's within-season churn skips the cross-fishery co-participation
+  network and Figure 7 entirely.** `chapter3_plan.md` Section 0.1 scopes
+  that network (Kroetz et al. 2019, Addicott et al. 2018 style) as the
+  weight for switch events, which only feeds the `[maybe]` Figure 7 and
+  Section 7's `[maybe]` Table 12, not Figure 5, Figure 6, or Table 6. None of
+  those three need it, so `06_within_season_reallocation.R` never builds it.
+  `MIN_LANDINGS = 3` (vessel-fishery-years) and `MIN_SEASON_LANDINGS = 10`
+  (fleet-wide fishery-years) are judgment calls, not facts, CHECK them once
+  run against real data.
+- **Table 7/8's regression is `log(rev.cv) ~ H_bar`, not the levels
+  specification Table 4 and Table 6 use.** Table 4 runs in levels
+  specifically because `H_bar = H_LR + Phi` only decomposes additively in
+  levels, `chapter3_plan.md` Section 9.2. That reasoning does not apply to
+  Table 7/8, nothing is being decomposed there, and Chapter 2's own
+  per-regime slopes that Figure 8 compares against (`0.74`/`0.75`/`0.78`/`0.87`
+  in `writeup/simulation_results.tex`) come from a log-linear
+  `log(CV) ~ H_bar` regression. Matching that specification is what makes
+  the comparison meaningful, using levels here would put Figure 8's two
+  halves on different scales.
+- **Section 7's "predetermined primary fishery" and "held set" reuse Table
+  8's split-sample idea rather than the whole-panel `prime.fishery`.**
+  `chapter3_plan.md` Section 9.2 flags the original R4 draft as circular,
+  defining "primary" using data from the same year (or vessel's whole
+  panel, which includes the year) the shock is measured in risks the shock
+  being what made a fishery non-primary in the first place.
+  `08_state_contingent_activation.R` fixes primary fishery once from each
+  vessel's own first half of active years and restricts the activation
+  sample to its second half, and uses held-in-`t-1` rather than held-in-`t`
+  for the held set, both per Section 9.3's resolution. The leave-one-out
+  quantity shock is standardized against each fishery's own complete
+  multi-year series (not a per-vessel leave-one-out series), see the comment above
+  `fishery_quantity_stats` in that script for why.
+- **A methodological review pass on Sections 5-7 (beyond the two bugs at the
+  top of this file) changed several specifications, each explained inline
+  where it happens.** `06_within_season_reallocation.R`, weights season
+  windows by landed pounds rather than revenue (a timing question does not
+  need a price signal in it), adds `weekly.churn.per.transition` (churn is
+  mechanically larger for a vessel that simply fishes more weeks, this
+  divides by the number of available week-to-week transitions instead),
+  and Table 6 now clusters on `Vessel.ADFG.Number` explicitly (fixest's
+  default would cluster on `prime.fishery`, too few fishery classes for
+  reliable inference), controls for mean active weeks, and adds a
+  vessel-fixed-effects robustness column. `07_behavioral_heterogeneity.R`
+  adds a continuous `H_bar * within.season.churn` interaction to Table 7 as
+  the headline statistic (the median split is now secondary, kept for
+  Figure 8's visual), a robustness refit using the normalized churn
+  classifier, a stricter-floor robustness refit for Table 8, and
+  heteroskedasticity-robust standard errors throughout (both scripts'
+  cross-sectional models had been reporting iid OLS SEs, which understate
+  the true uncertainty). Figure 8's framing was softened to compare the
+  ORDERING of empirical slopes against Chapter 2's, not their exact level,
+  since the empirical `H_bar` distribution and the simulated 3-fishery grid
+  are not on the same footing. `08_state_contingent_activation.R` adds a
+  minimum-years floor to the predetermined-primary and second-half samples
+  (mirroring Table 8's), an identification diagnostic reporting how many
+  fishery-year cells actually carry heterogeneous primaries, and rebuilds
+  Table 11's placebo entirely, see that script's Section 5 header comment,
+  the original forward-shift-only version could not distinguish a genuine
+  contamination from ordinary persistence in the shock series. Figure 10 is
+  now a fixed-effects-residualized binned scatter rather than a raw one,
+  so it cannot visually contradict Table 10's within-vessel, within-fishery-year
+  estimate.
 - **`MIN_ACTIVE_YEARS = 5` and `MIN_FISHERY_RETURN_YEARS = 10`** in
   `00_setup.R` are defaults, not derived facts. `chapter3_plan.md` Section
   9.3 calls a minimum-years filter "central rather than optional" without
@@ -221,3 +341,35 @@ point it is made in the code.
   would matter for a genuinely different question (5E in
   `chapter3_plan.md`, multi-vessel owners), not for the permit-holder wedge
   Sections 2-4 build.
+- **`09_seasonal_overlap.R` measures a fishery's SEASON as a fixed,
+  fleet-wide, all-years-pooled weekly landings distribution, not a
+  per-year, per-vessel object, and compares two fisheries' seasons with the
+  Bhattacharyya coefficient, not correlation or a shared-week count.**
+  Pooling across the whole panel (rather than per fishery-year, the way
+  `season_windows` in `06_within_season_reallocation.R` works) treats a
+  fishery's calendar as a mostly-fixed characteristic of its biology and
+  regulation, and means no single vessel's own behavior meaningfully
+  drives the signature used to explain that same vessel's own choices
+  (unlike the Section 7 shock, which needs an explicit leave-one-out
+  adjustment because one vessel CAN dominate a single fishery-year). The
+  Bhattacharyya coefficient, `sum_w sqrt(p_w * q_w)`, is a standard bounded
+  `[0, 1]` distributional-overlap measure, chosen over correlation because
+  correlation can be negative or exceed what "share of weeks in common"
+  should mean, and over a raw shared-week count because it is weighted by
+  how much revenue is concentrated in the overlapping weeks, not just
+  whether they overlap at all. `MIN_FISHERY_WEEKS = 3` (a fishery needs
+  landings in at least this many distinct weeks, pooled across the whole
+  panel, before it gets a season signature) and
+  `SEASONAL_OVERLAP_CUTOFF = 0.5` (Figure 11's "seasonally blocked" split)
+  are judgment calls, not facts, CHECK both once run on real data. This
+  script exists because a deep-reasoning review of whether to import
+  Abbott, Sakai & Holland (2023)'s temporal-diversification measure
+  (`Context_papers/`, a Shannon index over a fisher's OWN weekly revenue
+  shares) concluded that measure should NOT be imported directly, this
+  chapter's structural advantage is observing the HELD option set, which
+  has no analogue on the West Coast data that paper uses, and adopting
+  their fished-revenue-based measure would abandon that advantage rather
+  than use it. The seasonal-overlap-of-the-HELD-portfolio measure here is
+  the Alaska-specific object their framework does not (and structurally
+  cannot) build, used to fill Table 12 (Section 7) and re-cut the Section 3
+  wedge (Figure 11), not as a copy of their index.

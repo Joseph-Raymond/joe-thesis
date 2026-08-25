@@ -41,8 +41,9 @@ figure1 <- fig1_data %>%
   ggplot(aes(x = Batch.Year, y = mean_unused_share, color = measure)) +
   geom_line(linewidth = 0.8) +
   labs(
+    # Count vs. value share, and fishery-class vs. permit-serial, are defined
+    # in the caption, the legend already names the three series distinctly.
     title = "Mean unused share of held permits, fleet-wide",
-    subtitle = "Count share: permits held but not fished, over permits held, shown at the fishery-class and permit-serial level.\nValue share: fleet-mean forgone revenue over forgone-plus-fished value.",
     x = "Year", y = "Mean unused share", color = NULL
   ) +
   scale_color_brewer(palette = "Set1") +
