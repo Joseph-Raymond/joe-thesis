@@ -99,6 +99,22 @@ split_fishery_code <- function(fishery) {
   )
 }
 
+# Derives a within-year week number from Date.Landed (int, YYYYMMDD), used by
+# 06_within_season_reallocation.R and 09_seasonal_overlap.R for anything at
+# weekly grain. chapter3_plan.md Section 1's data dictionary lists both
+# Statistical.Week and Week.Ending.Date as raw fish-ticket columns, but
+# checked directly against the real catch_data_temp object on the server,
+# neither is actually present, only Date.Landed, Date.Fishing.Began, and
+# Batch.Year are. So this is a PROXY built from the one date field reliably
+# there, not ADFG's own regulatory statistical-week code. week() buckets by
+# day-of-year (1 + (yday-1) %/% 7, range 1-53) rather than
+# lubridate::isoweek(), so a week never crosses a calendar year boundary,
+# which matters since every grouping that uses this nests week inside
+# Batch.Year.
+derive_statistical_week <- function(date_landed_int) {
+  lubridate::week(as.Date(as.character(date_landed_int), format = "%Y%m%d"))
+}
+
 # CPI deflator, optional. Put a two-column csv (Year, CPI) at
 # Chpt3/data/cpi_deflator.csv, indexed to any base year, to deflate revenue.
 # Without it every dollar figure downstream stays nominal, which biases CV

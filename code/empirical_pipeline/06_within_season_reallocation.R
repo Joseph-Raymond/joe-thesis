@@ -19,8 +19,12 @@
 #
 # Reads intermediate data/ch3_panel.rdata (period_bounds, vessel_period_summary,
 # vessel_summary for prime.fishery) AND reloads the raw catch_data_temp.rdata
-# ticket file directly, since Statistical.Week never makes it into the saved
-# panel, only annual aggregates do. Saves churn_by_vessel_year and
+# ticket file directly, since week-level granularity never makes it into the
+# saved panel, only annual aggregates do. catch_data_temp has no
+# Statistical.Week or Week.Ending.Date column (checked directly against the
+# real object on the server), so Statistical.Week below is DERIVED from
+# Date.Landed via derive_statistical_week() in 00_setup.R, see the comment
+# there for the exact definition and why. Saves churn_by_vessel_year and
 # season_windows to intermediate data/ch3_within_season.rdata so
 # 07_behavioral_heterogeneity.R does not have to redo this reload.
 
@@ -40,7 +44,8 @@ if (!exists("period_bounds") || !exists("vessel_period_summary") || !exists("ves
 # version of this cleaning. MAX_YEAR is loaded from panel_path above (saved
 # there by 01_build_panel.R Section 2b) rather than recomputed, so this
 # script can never drift out of sync with whatever trailing-year coverage
-# trim that section decided on.
+# trim that section decided on. The one addition beyond 01's Section 2 is
+# Statistical.Week itself, see derive_statistical_week() in 00_setup.R.
 
 load(file.path(intermediate_dir, "catch_data_temp.rdata"))
 
@@ -51,7 +56,10 @@ catch_data_temp[["CFEC.Value..Detail."]][is.na(catch_data_temp[["CFEC.Value..Det
 
 catch_data_temp <- catch_data_temp %>%
   filter(Batch.Year >= MIN_YEAR, Batch.Year <= MAX_YEAR) %>%
-  mutate(Fishery = strip_fishery_space(CFEC.Permit.Fishery)) %>%
+  mutate(
+    Fishery = strip_fishery_space(CFEC.Permit.Fishery),
+    Statistical.Week = derive_statistical_week(Date.Landed)
+  ) %>%
   filter(Fishery != "", !is.na(Statistical.Week))
 
 cat("Ticket rows entering the within-season panel:", nrow(catch_data_temp), "\n")

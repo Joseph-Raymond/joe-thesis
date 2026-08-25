@@ -73,7 +73,11 @@ if (!exists("activation_data")) load(activation_path)
 # leave-one-out adjustment is needed here.
 #
 # Same cleaning steps as 01_build_panel.R Section 2 and the other scripts
-# that reload raw tickets, duplicated for the same reason given there.
+# that reload raw tickets, duplicated for the same reason given there. As in
+# 06_within_season_reallocation.R, Statistical.Week is not an actual column
+# in catch_data_temp (checked directly against the real object on the
+# server), it is DERIVED from Date.Landed via derive_statistical_week() in
+# 00_setup.R, see the comment there for the exact definition and why.
 
 load(file.path(intermediate_dir, "catch_data_temp.rdata"))
 
@@ -83,7 +87,10 @@ catch_data_temp$Vessel.ADFG.Number <- as.integer(catch_data_temp$Vessel.ADFG.Num
 
 catch_data_temp <- catch_data_temp %>%
   filter(Batch.Year >= MIN_YEAR, Batch.Year <= MAX_YEAR) %>%
-  mutate(Fishery = strip_fishery_space(CFEC.Permit.Fishery)) %>%
+  mutate(
+    Fishery = strip_fishery_space(CFEC.Permit.Fishery),
+    Statistical.Week = derive_statistical_week(Date.Landed)
+  ) %>%
   filter(Fishery != "", !is.na(Statistical.Week))
 
 # A fishery needs landings in at least MIN_FISHERY_WEEKS distinct weeks,

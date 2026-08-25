@@ -102,8 +102,17 @@ fresh session as long as 01 has been run at least once. Outputs land in
 `period_bounds`, `vessel_summary`, `vessel_fishery_year`, `vessel_share_panel`,
 `vessel_year`, and `MAX_YEAR`), but reload the raw
 `intermediate data/catch_data_temp.rdata` ticket file directly on top of
-that, since `Statistical.Week` and `Pounds..Detail.` never make it into the
-saved panel, only annual revenue aggregates do. `06_within_season_reallocation.R`
+that, since week-level granularity never makes it into the saved panel, only
+annual revenue aggregates do (`Pounds..Detail.` also lives only in the raw
+ticket file, not the saved panel). `06_within_season_reallocation.R` and
+`09_seasonal_overlap.R` both need `Statistical.Week`, but `catch_data_temp`
+has no such column, or `Week.Ending.Date` either, checked directly against
+the real object on the server, only `Date.Landed`, `Date.Fishing.Began`, and
+`Batch.Year` are actually there. Both scripts now derive `Statistical.Week`
+from `Date.Landed` via `derive_statistical_week()` in `00_setup.R` (a
+day-of-year `%/% 7` bucket, 1-53), which is a proxy, not ADFG's own
+regulatory statistical-week code, see that function's comment for why.
+`06_within_season_reallocation.R`
 additionally saves `intermediate data/ch3_within_season.rdata`
 (`churn_by_vessel_year`, `season_windows`), which `07_behavioral_heterogeneity.R`
 loads rather than redoing that reload, so 06 needs to run before 07. 08 does
