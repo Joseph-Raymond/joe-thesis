@@ -234,6 +234,7 @@ activation_data <- activation_candidates %>%
   mutate(fishery.year = paste(Fishery, Batch.Year, sep = "_"))
 
 cat("Activation regression sample:", nrow(activation_data), "\n")
+cat("Mean activation rate:", round(mean(activation_data$activated), 3), "\n")
 
 model_activation <- feols(activated ~ shock | Vessel.ADFG.Number + fishery.year, data = activation_data)
 
