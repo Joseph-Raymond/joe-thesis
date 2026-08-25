@@ -299,8 +299,16 @@ empirical_slopes <- bind_rows(
 figure8 <- empirical_slopes %>%
   ggplot(aes(x = spec, y = slope, color = vessel.type)) +
   geom_hline(data = chapter2_slopes, aes(yintercept = slope), linetype = "dashed", color = "gray60") +
-  geom_text(data = chapter2_slopes, aes(x = 0.55, y = slope, label = regime),
-            inherit.aes = FALSE, hjust = 0, size = 3, color = "gray40") +
+  # x = -Inf (left panel edge) rather than a hardcoded numeric position like
+  # 0.55, spec on the main aes mapping is a discrete/character scale, and a
+  # literal number in the same plot's x aesthetic (even in a layer with
+  # inherit.aes = FALSE, the x scale is still shared across the whole plot)
+  # throws "Discrete value supplied to a continuous scale," confirmed
+  # against a real run. -Inf works on a discrete scale exactly like it does
+  # on a continuous one, no need to guess a position that happens to sit
+  # just left of the first category.
+  geom_text(data = chapter2_slopes, aes(x = -Inf, y = slope, label = regime),
+            inherit.aes = FALSE, hjust = -0.1, size = 3, color = "gray40") +
   geom_pointrange(aes(ymin = slope - 1.96 * se, ymax = slope + 1.96 * se),
                    position = position_dodge(width = 0.3), size = 0.6) +
   scale_color_manual(values = c("Low turnover" = "steelblue", "High turnover" = "firebrick")) +

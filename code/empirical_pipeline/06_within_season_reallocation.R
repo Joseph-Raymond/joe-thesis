@@ -185,32 +185,42 @@ ggsave(file.path(figure_dir, "figure5_weekly_turnover_distribution.png"),
 
 cat("Wrote figure5_weekly_turnover_distribution.png\n")
 
-# Same distribution, pseudo-log x-axis, added as an ADDITIONAL figure
-# alongside figure5 above, not a replacement. Most vessel-years sit at or
-# near weekly.switching = 0 (single-fishery specialists, whose weekly mix
-# never changes), while reallocating vessels stretch into a long right tail
-# as a raw sum, so figure5's linear scale crams almost everything into the
-# first bin or two. scales::pseudo_log_trans() behaves like log10() for
-# large values but stays linear near zero (unlike an actual log, it is
-# defined AT zero, so the zero-switching spike does not have to be dropped
-# or offset), which keeps both the zero mass and the long tail legible in
-# one plot.
-figure5_pseudolog <- switching_by_vessel_year %>%
+# Second view of the same distribution, added as an ADDITIONAL figure
+# alongside figure5 above, not a replacement. A pseudo-log x-axis transform
+# was tried first and rejected, geom_histogram() bins on the untransformed
+# scale before the axis remaps bar positions, so it barely changed how the
+# plot looked, checked directly against a real run. The actual problem is
+# the Y-axis, most vessel-years sit at exactly weekly.switching = 0
+# (single-fishery specialists, whose weekly mix never changes), a bar tens
+# of times taller than anything else on a linear count axis, which crushes
+# the shape of the rest of the distribution flat regardless of how the
+# X-axis is scaled. A log Y-axis would fix that but is an awkward read for
+# a general audience, so instead this follows the same pattern figure3's
+# specialist split already uses elsewhere in the chapter, report the
+# zero-switching share as a number, and plot the shape of what is left on
+# an ordinary linear scale.
+zero_switching_share <- mean(switching_by_vessel_year$weekly.switching == 0)
+cat("Share of vessel-years with exactly zero weekly switching:",
+    round(zero_switching_share, 3), "\n")
+
+figure5_nonzero <- switching_by_vessel_year %>%
+  filter(weekly.switching > 0) %>%
   ggplot(aes(x = weekly.switching)) +
   geom_histogram(bins = 50, fill = "steelblue", color = "white") +
-  scale_x_continuous(trans = scales::pseudo_log_trans(base = 10)) +
   labs(
-    title = "Distribution of within-season turnover, pseudo-log scale",
-    subtitle = "One observation per vessel-year",
-    x = "Weekly target switching (pseudo-log scale)",
+    title = "Distribution of within-season turnover, excluding zero switching",
+    subtitle = paste0("Vessel-years with weekly.switching > 0 only (",
+                       scales::percent(1 - zero_switching_share, accuracy = 0.1),
+                       " of all vessel-years)"),
+    x = "Weekly target switching",
     y = "Vessel-years"
   ) +
   theme_minimal()
 
-ggsave(file.path(figure_dir, "figure5b_weekly_turnover_pseudolog.png"),
-       figure5_pseudolog, width = 7, height = 5, dpi = 300)
+ggsave(file.path(figure_dir, "figure5b_weekly_turnover_nonzero.png"),
+       figure5_nonzero, width = 7, height = 5, dpi = 300)
 
-cat("Wrote figure5b_weekly_turnover_pseudolog.png\n")
+cat("Wrote figure5b_weekly_turnover_nonzero.png\n")
 
 # ============================================================================
 # 4. Empirical season windows per fishery-year (Figure 6)
