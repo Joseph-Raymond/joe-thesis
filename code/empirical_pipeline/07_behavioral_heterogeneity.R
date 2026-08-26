@@ -130,14 +130,15 @@ cat("Wrote table7_slope_by_turnover_type.tex\n")
 
 # ----------------------------------------------------------------------
 # Robustness. Re-classify type on the per-transition-normalized switching
-# measure instead of the raw sum, written out as its own table (in addition
-# to the console summary below) so the coefficients backing the "does not
-# survive reclassifying type on a per-transition-normalized switching
-# measure" claim in the writeup are quotable rather than console-only. This
-# checks the median-split result is not an artifact of raw weekly.switching
-# being mechanically larger for vessels that simply fish more weeks (see the
-# comment above weekly.switching.per.transition in
-# 06_within_season_reallocation.R).
+# measure instead of the raw sum, mirroring Table 7's full five-column
+# structure (raw split, prime.fishery-FE split, continuous interaction)
+# rather than just the two no-FE models, written out as its own table so
+# the coefficients backing the "does not survive reclassifying type on a
+# per-transition-normalized switching measure" claim in the writeup are
+# quotable rather than console-only. This checks the median-split result is
+# not an artifact of raw weekly.switching being mechanically larger for
+# vessels that simply fish more weeks (see the comment above
+# weekly.switching.per.transition in 06_within_season_reallocation.R).
 # ----------------------------------------------------------------------
 
 vessel_type_normalized <- switching_by_vessel_year %>%
@@ -152,6 +153,8 @@ table7_data_norm <- vessel_summary %>%
 
 model_low_raw_norm  <- feols(log(rev.cv) ~ H_bar, data = filter(table7_data_norm, vessel.type.norm == "Low turnover"), vcov = "hetero")
 model_high_raw_norm <- feols(log(rev.cv) ~ H_bar, data = filter(table7_data_norm, vessel.type.norm == "High turnover"), vcov = "hetero")
+model_low_fe_norm    <- feols(log(rev.cv) ~ H_bar | prime.fishery, data = filter(table7_data_norm, vessel.type.norm == "Low turnover"), vcov = "hetero")
+model_high_fe_norm   <- feols(log(rev.cv) ~ H_bar | prime.fishery, data = filter(table7_data_norm, vessel.type.norm == "High turnover"), vcov = "hetero")
 
 cat("Robustness, per-transition-normalized switching classifier, slope Low turnover:",
     round(coef(model_low_raw_norm)["H_bar"], 4), " High turnover:",
@@ -159,13 +162,34 @@ cat("Robustness, per-transition-normalized switching classifier, slope Low turno
     " (raw-switching classifier gave Low:", round(coef(model_low_raw)["H_bar"], 4),
     " High:", round(coef(model_high_raw)["H_bar"], 4), ")\n")
 
+# Interaction model, normalized-measure analogue of model_interaction above,
+# within.season.switching.norm (per-transition intensity) in place of the
+# raw sum, same full table7_data_norm sample (not split by type). Checks
+# whether the headline interaction result also holds up under the
+# normalized measure, not just the median-split slopes.
+model_interaction_norm <- feols(log(rev.cv) ~ H_bar * within.season.switching.norm | prime.fishery,
+                                 data = table7_data_norm, vcov = "hetero")
+
+cat("Interaction coefficient (H_bar x within.season.switching.norm), normalized-measure analogue of the ",
+    "headline Table 7 statistic, ",
+    round(coef(model_interaction_norm)["H_bar:within.season.switching.norm"], 4), "\n")
+
+# dict relabels within.season.switching.norm for the printed/exported table
+# only, the column itself keeps its name so nothing else in this script
+# needs to change if the display label is tweaked again later.
+table7_norm_dict <- c(within.season.switching.norm = "Target switching (per-transition)")
+
 etable(
-  model_low_raw_norm, model_high_raw_norm,
-  headers = c("Low turnover (normalized)", "High turnover (normalized)"),
+  model_low_raw_norm, model_high_raw_norm, model_low_fe_norm, model_high_fe_norm, model_interaction_norm,
+  headers = c("Low turnover", "High turnover", "Low turnover (FE)", "High turnover (FE)", "Interaction"),
+  dict = table7_norm_dict,
   tex = TRUE,
   file = file.path(table_dir, "table7_slope_by_turnover_type_normalized.tex"),
   replace = TRUE
 )
+
+print(etable(model_low_raw_norm, model_high_raw_norm, model_low_fe_norm, model_high_fe_norm, model_interaction_norm,
+             dict = table7_norm_dict))
 
 cat("Wrote table7_slope_by_turnover_type_normalized.tex\n")
 
