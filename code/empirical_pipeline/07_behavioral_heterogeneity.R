@@ -193,6 +193,43 @@ print(etable(model_low_raw_norm, model_high_raw_norm, model_low_fe_norm, model_h
 
 cat("Wrote table7_slope_by_turnover_type_normalized.tex\n")
 
+# ----------------------------------------------------------------------
+# Diagnostic. H_bar distribution by turnover type, both classifiers side
+# by side. Not part of chapter3_outline.md, added to help explain why the
+# Low turnover slope is so unstable above (raw R^2 = 0.001, sign flips
+# with FE choice under the normalized classifier). A group whose H_bar
+# barely varies gives a regression slope almost no leverage to estimate
+# from, so a handful of vessels near the tails can swing the point
+# estimate, which is consistent with the instability already seen in both
+# Table 7 versions. Density rather than a histogram, the two groups have
+# very different N (Low ~4,500 vs High ~6,300 in both classifiers), so a
+# count-based histogram would visually exaggerate the size difference
+# rather than the shape difference this is meant to show.
+# ----------------------------------------------------------------------
+
+hbar_by_type <- bind_rows(
+  table7_data %>% transmute(H_bar, vessel.type, classifier = "Raw classifier"),
+  table7_data_norm %>% transmute(H_bar, vessel.type = vessel.type.norm, classifier = "Normalized classifier")
+)
+
+figure_hbar_by_type <- hbar_by_type %>%
+  ggplot(aes(x = H_bar, fill = vessel.type, color = vessel.type)) +
+  geom_density(alpha = 0.35, linewidth = 0.6) +
+  facet_wrap(~ classifier) +
+  scale_fill_manual(values = c("Low turnover" = "steelblue", "High turnover" = "firebrick")) +
+  scale_color_manual(values = c("Low turnover" = "steelblue", "High turnover" = "firebrick")) +
+  labs(
+    title = "H_bar distribution by turnover type",
+    subtitle = "Diagnostic for Table 7's Low-turnover instability, not an outline figure",
+    x = expression(bar(H)), y = "Density", fill = NULL, color = NULL
+  ) +
+  theme_minimal()
+
+ggsave(file.path(figure_dir, "diagnostic_hbar_by_turnover_type.png"),
+       figure_hbar_by_type, width = 9, height = 5, dpi = 300)
+
+cat("Wrote diagnostic_hbar_by_turnover_type.png\n")
+
 # ============================================================================
 # 3. Table 8. Split-sample robustness, classify on first half, test on
 #    second half
