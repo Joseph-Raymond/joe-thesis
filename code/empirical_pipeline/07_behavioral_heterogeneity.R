@@ -230,6 +230,61 @@ ggsave(file.path(figure_dir, "diagnostic_hbar_by_turnover_type.png"),
 
 cat("Wrote diagnostic_hbar_by_turnover_type.png\n")
 
+# ----------------------------------------------------------------------
+# Robustness. Same normalized-classifier models above, restricted to
+# multi-fishery vessels, excluding H_bar = 1 single-fishery specialists.
+# Motivated by the diagnostic figure just above, which showed the Low
+# turnover group is disproportionately specialists, vessels with zero
+# within-vessel H_bar variance to estimate a slope from, a likely
+# contributor to that group's near-zero R^2 and its sign instability
+# across specifications. is.specialist is built the same way Table 4 /
+# Figure 3 (05_table4_figure3.R) do it, n.fisheries.fished == 1 counted
+# off vessel_mean_share's Fishery dimension (each vessel's own ever-fished
+# set), not a floating-point H_bar == 1 comparison, for consistency with
+# that established convention.
+# ----------------------------------------------------------------------
+
+if (!exists("vessel_mean_share")) load(panel_path)
+
+n_fisheries_fished <- vessel_mean_share %>%
+  count(Vessel.ADFG.Number, name = "n.fisheries.fished")
+
+table7_data_norm_multi <- table7_data_norm %>%
+  left_join(n_fisheries_fished, by = "Vessel.ADFG.Number") %>%
+  filter(n.fisheries.fished > 1)
+
+cat("Table 7 (normalized), multi-fishery vessels only:", nrow(table7_data_norm_multi),
+    " of", nrow(table7_data_norm), "(dropped",
+    nrow(table7_data_norm) - nrow(table7_data_norm_multi), "single-fishery specialists), High turnover:",
+    sum(table7_data_norm_multi$vessel.type.norm == "High turnover"), "\n")
+
+model_low_raw_norm_multi  <- feols(log(rev.cv) ~ H_bar, data = filter(table7_data_norm_multi, vessel.type.norm == "Low turnover"), vcov = "hetero")
+model_high_raw_norm_multi <- feols(log(rev.cv) ~ H_bar, data = filter(table7_data_norm_multi, vessel.type.norm == "High turnover"), vcov = "hetero")
+model_low_fe_norm_multi   <- feols(log(rev.cv) ~ H_bar | prime.fishery, data = filter(table7_data_norm_multi, vessel.type.norm == "Low turnover"), vcov = "hetero")
+model_high_fe_norm_multi  <- feols(log(rev.cv) ~ H_bar | prime.fishery, data = filter(table7_data_norm_multi, vessel.type.norm == "High turnover"), vcov = "hetero")
+
+model_interaction_norm_multi <- feols(log(rev.cv) ~ H_bar * within.season.switching.norm | prime.fishery,
+                                       data = table7_data_norm_multi, vcov = "hetero")
+
+cat("Multi-fishery-only slope, Low turnover:", round(coef(model_low_raw_norm_multi)["H_bar"], 4),
+    " High turnover:", round(coef(model_high_raw_norm_multi)["H_bar"], 4),
+    " (full-sample normalized version gave Low:", round(coef(model_low_raw_norm)["H_bar"], 4),
+    " High:", round(coef(model_high_raw_norm)["H_bar"], 4), ")\n")
+
+etable(
+  model_low_raw_norm_multi, model_high_raw_norm_multi, model_low_fe_norm_multi, model_high_fe_norm_multi, model_interaction_norm_multi,
+  headers = c("Low turnover", "High turnover", "Low turnover (FE)", "High turnover (FE)", "Interaction"),
+  dict = table7_norm_dict,
+  tex = TRUE,
+  file = file.path(table_dir, "table7_slope_by_turnover_type_normalized_multifishery.tex"),
+  replace = TRUE
+)
+
+print(etable(model_low_raw_norm_multi, model_high_raw_norm_multi, model_low_fe_norm_multi, model_high_fe_norm_multi, model_interaction_norm_multi,
+             dict = table7_norm_dict))
+
+cat("Wrote table7_slope_by_turnover_type_normalized_multifishery.tex\n")
+
 # ============================================================================
 # 3. Table 8. Split-sample robustness, classify on first half, test on
 #    second half
