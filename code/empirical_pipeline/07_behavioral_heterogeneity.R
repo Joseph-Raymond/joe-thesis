@@ -8,7 +8,12 @@
 #           which is what makes this a test rather than a sort.
 # Figure 8. Estimated slope by type, next to Chapter 2's simulated slopes.
 # Figure 9 [appendix]. The same exercise sorted on Phi instead, shown once
-#           to illustrate why that version is circular.
+#           to check whether the Table 7/Figure 8 gap is just the generic
+#           mechanical artifact any HHI-component sort would produce.
+#           Checked against a real run, it is not, the Phi sort produces
+#           only a small, overlapping-interval gap versus the large,
+#           robust gap from the within-season classifier, so this reads as
+#           corroboration for Table 7 rather than a caution about it.
 #
 # Skips Table 9 [maybe] (within-gear-class matched estimation) and the "if I
 # have time" interactions/quantile-regression/causal-forest block, both
@@ -125,10 +130,13 @@ cat("Wrote table7_slope_by_turnover_type.tex\n")
 
 # ----------------------------------------------------------------------
 # Robustness. Re-classify type on the per-transition-normalized switching
-# measure instead of the raw sum, printed only (not written as its own
-# table), to check the median-split result is not an artifact of raw
-# weekly.switching being mechanically larger for vessels that simply fish
-# more weeks (see the comment above weekly.switching.per.transition in
+# measure instead of the raw sum, written out as its own table (in addition
+# to the console summary below) so the coefficients backing the "does not
+# survive reclassifying type on a per-transition-normalized switching
+# measure" claim in the writeup are quotable rather than console-only. This
+# checks the median-split result is not an artifact of raw weekly.switching
+# being mechanically larger for vessels that simply fish more weeks (see the
+# comment above weekly.switching.per.transition in
 # 06_within_season_reallocation.R).
 # ----------------------------------------------------------------------
 
@@ -150,6 +158,16 @@ cat("Robustness, per-transition-normalized switching classifier, slope Low turno
     round(coef(model_high_raw_norm)["H_bar"], 4),
     " (raw-switching classifier gave Low:", round(coef(model_low_raw)["H_bar"], 4),
     " High:", round(coef(model_high_raw)["H_bar"], 4), ")\n")
+
+etable(
+  model_low_raw_norm, model_high_raw_norm,
+  headers = c("Low turnover (normalized)", "High turnover (normalized)"),
+  tex = TRUE,
+  file = file.path(table_dir, "table7_slope_by_turnover_type_normalized.tex"),
+  replace = TRUE
+)
+
+cat("Wrote table7_slope_by_turnover_type_normalized.tex\n")
 
 # ============================================================================
 # 3. Table 8. Split-sample robustness, classify on first half, test on
@@ -327,27 +345,48 @@ ggsave(file.path(figure_dir, "figure8_slope_by_type_vs_chapter2.png"),
 cat("Wrote figure8_slope_by_type_vs_chapter2.png\n")
 
 # ============================================================================
-# 5. Figure 9 [appendix]. Same exercise sorted on Phi, to show the
-#    circularity rather than offer it as evidence
+# 5. Figure 9 [appendix]. Same exercise sorted on Phi, a check against the
+#    generic mechanical-sort artifact rather than a second piece of evidence
 # ============================================================================
 #
 # Phi is a component of H_bar (H_bar = H_LR + Phi), so sorting vessels by
 # Phi and then regressing log(rev.cv) on H_bar within each group is close to
-# mechanically guaranteed to show a gap, independent of any real behavioral
-# difference. Shown once, in the appendix, specifically to make that
-# mechanical point visible next to Figure 8's genuine (within-season) test,
-# not offered as a second piece of evidence for the same claim.
+# mechanically guaranteed to show SOME gap, independent of any real
+# behavioral difference, which is why this is not offered as a second piece
+# of evidence for Table 7's claim. Checked against a real run, though, the
+# Phi-sorted gap is small with heavily overlapping confidence intervals,
+# nothing like Table 7/Figure 8's large, robust gap from the genuinely
+# different-frequency within-season classifier. That makes this figure
+# reassuring rather than a caution, it shows the Table 7 result is not just
+# the generic thing any HHI-component sort would produce. vcov = "hetero"
+# for consistency with every other cross-sectional model in this script,
+# an earlier version left this at fixest's iid default, which put its
+# intervals on a different basis than Figure 8's.
 
 vessel_type_phi <- vessel_summary %>%
   filter(meets.min.years, is.finite(rev.cv), rev.cv > 0) %>%
   mutate(vessel.type = if_else(Phi > median(Phi), "High Phi", "Low Phi"))
 
-model_phi_low  <- feols(log(rev.cv) ~ H_bar, data = filter(vessel_type_phi, vessel.type == "Low Phi"))
-model_phi_high <- feols(log(rev.cv) ~ H_bar, data = filter(vessel_type_phi, vessel.type == "High Phi"))
+model_phi_low  <- feols(log(rev.cv) ~ H_bar, data = filter(vessel_type_phi, vessel.type == "Low Phi"), vcov = "hetero")
+model_phi_high <- feols(log(rev.cv) ~ H_bar, data = filter(vessel_type_phi, vessel.type == "High Phi"), vcov = "hetero")
 
 phi_sorted_slopes <- bind_rows(
   tibble(vessel.type = "Low Phi",  slope = coef(model_phi_low)["H_bar"],  se = se(model_phi_low)["H_bar"]),
   tibble(vessel.type = "High Phi", slope = coef(model_phi_high)["H_bar"], se = se(model_phi_high)["H_bar"])
+)
+
+cat("Figure 9, Phi-sorted slopes, Low Phi:", round(phi_sorted_slopes$slope[1], 4),
+    "(se", round(phi_sorted_slopes$se[1], 4), ") High Phi:", round(phi_sorted_slopes$slope[2], 4),
+    "(se", round(phi_sorted_slopes$se[2], 4), ")\n")
+
+# Written out as its own small table, not just plotted, so the two slopes
+# are directly quotable rather than only readable off Figure 9's points.
+etable(
+  model_phi_low, model_phi_high,
+  headers = c("Low Phi", "High Phi"),
+  tex = TRUE,
+  file = file.path(table_dir, "table9_appendix_slope_by_phi.tex"),
+  replace = TRUE
 )
 
 figure9_appendix <- phi_sorted_slopes %>%
@@ -355,10 +394,10 @@ figure9_appendix <- phi_sorted_slopes %>%
   geom_hline(data = chapter2_slopes, aes(yintercept = slope), linetype = "dashed", color = "gray60") +
   geom_pointrange(aes(ymin = slope - 1.96 * se, ymax = slope + 1.96 * se), color = "firebrick", size = 0.6) +
   labs(
-    # Why this is close to mechanical rather than a second piece of evidence
-    # (see the comment above this section) belongs in the caption.
+    # Why this reads as corroboration rather than a caution (see the
+    # comment above this section) belongs in the caption.
     title = "Same exercise, sorted on Phi instead of turnover",
-    subtitle = "Phi is a component of H_bar, so a gap here is expected",
+    subtitle = "A check against the generic mechanical-sort artifact, not a second result",
     x = NULL, y = "Estimated slope, log(rev.cv) ~ H_bar"
   ) +
   theme_minimal()
@@ -366,4 +405,4 @@ figure9_appendix <- phi_sorted_slopes %>%
 ggsave(file.path(figure_dir, "figure9_appendix_phi_sorted.png"),
        figure9_appendix, width = 6, height = 5, dpi = 300)
 
-cat("Wrote figure9_appendix_phi_sorted.png\n")
+cat("Wrote figure9_appendix_phi_sorted.png and table9_appendix_slope_by_phi.tex\n")

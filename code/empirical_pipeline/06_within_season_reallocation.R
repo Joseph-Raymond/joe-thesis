@@ -85,11 +85,22 @@ cat("Ticket rows entering the within-season panel:", nrow(catch_data_temp), "\n"
 # of a within-year percentile rank. It would only matter for a level
 # comparison across years, which nothing here does.
 #
-# MIN_LANDINGS restricts to vessel-fishery-years with at least a handful of
+# MIN_LANDINGS originally excluded vessel-fishery-years with fewer than 3
 # ticket rows, per chapter3_plan.md Section 9.3 ("single-delivery permits
-# produce degenerate switching measures"). CHECK this threshold once run on real
-# data, it is a judgment call, not a fact.
-MIN_LANDINGS <- 3
+# produce degenerate switching measures"). Lowered to 1 (i.e. no exclusion)
+# after a methodological review flagged that this threshold did NOT match
+# 01_build_panel.R's H_bar/rev.cv, which apply no landings floor at all, so
+# a vessel's thin, few-landing side fishery could disappear from its
+# switching measure (making it look like a specialist) while still fully
+# counting toward H_bar and rev.cv, a mismatch that could manufacture a
+# spurious H_bar-CV relationship inside whichever turnover group absorbed
+# those vessels. At 1, both objects now condition on the same thing, any
+# positive activity, closing that gap. Checked against a real run, Table 6
+# is not sensitive to this change (if anything the Phi relationship is
+# slightly stronger at 1 than at 3), and a single real landing is treated
+# as meaningful activity rather than noise, not a data-quality problem to
+# filter out.
+MIN_LANDINGS <- 1
 
 vessel_fishery_year_landings <- catch_data_temp %>%
   count(Vessel.ADFG.Number, Batch.Year, Fishery, name = "n.landings")
@@ -229,28 +240,40 @@ cat("Wrote figure5b_weekly_turnover_nonzero.png\n")
 # Fleet-wide, not vessel-specific, per chapter3_outline.md's own framing
 # ("empirical season windows per fishery-year"). Start/end are the
 # 5th/95th percentile landing week within that fishery-year, weighted by
-# landed POUNDS rather than revenue. "When is this fishery active" is a
-# timing/effort question, and revenue drags a price signal into the
-# weights it does not need, plus it would inherit the zero-filled-price
-# issue Table 2 documents (a fishery-year with poor price coverage gets its
-# weeks mis-weighted, and a fishery-year with zero recorded value everywhere
-# would divide by zero). Pounds is also consistent with the quantity-first
-# choice 08_state_contingent_activation.R makes for its shock, for the same
-# reason (strip price out of a purely biological/timing question). A
-# fishery-year needs at least MIN_SEASON_LANDINGS ticket rows fleet-wide for
-# the percentiles to mean anything, a handful of landings cannot support a
-# stable estimate, and is dropped entirely if every one of those landings
-# has missing/zero recorded weight (rare, but the alternative is a
+# REVENUE (CFEC.Value..Detail.), not landed pounds. Originally pounds-
+# weighted specifically to keep a price signal out of a timing question,
+# switched to revenue because pounds turned out to carry its own
+# contamination risk, a ticket row logging incidental bycatch of a
+# non-target species under a permit can carry positive landed weight with
+# little or no recorded value, which would pull a pounds-weighted season
+# window toward weeks with heavy bycatch rather than heavy TARGET-species
+# effort. Revenue does not have that problem, a near-zero-value bycatch row
+# barely moves a revenue-weighted percentile. The trade-off accepted in
+# exchange is the zero-filled-price issue Table 2 documents, a fishery-year
+# with poor price coverage has some of its landed weeks effectively zeroed
+# out of the weighting by the catch_data_temp[["CFEC.Value..Detail."]]
+# [is.na(...)] <- 0 fill in Section 2b, understating those weeks'
+# contribution to the window (share_zero_fill_has_positive_pounds in
+# 01_build_panel.R quantifies how much of a live concern that is
+# fleet-wide). This also breaks consistency with
+# 08_state_contingent_activation.R's shock, which stays pounds-weighted on
+# purpose there, that shock IS the quantity/timing object pounds are meant
+# to capture, not a proxy standing in for it the way this season window is.
+# A fishery-year needs at least MIN_SEASON_LANDINGS ticket rows fleet-wide
+# for the percentiles to mean anything, a handful of landings cannot
+# support a stable estimate, and is dropped entirely if every one of those
+# landings has zero recorded value (rare, but the alternative is a
 # divide-by-zero).
 MIN_SEASON_LANDINGS <- 10
 
 weighted_percentile_week <- function(week, weight, p) {
   ord <- order(week)
   week <- week[ord]
-  # as.numeric() defends against integer overflow in cumsum() below, even
-  # though the caller already coerces Pounds..Detail. to double on load,
-  # this function has no other way to guarantee whatever it is handed is
-  # not integer-typed.
+  # as.numeric() defends against integer overflow in cumsum() below, not
+  # actually needed for CFEC.Value..Detail. (unlike Pounds..Detail., see
+  # the comment in Section 1, it does not load as an R integer) but kept
+  # as a general defense since this function has no other way to guarantee
+  # whatever it is handed is not integer-typed.
   weight <- as.numeric(weight[ord])
   cum_share <- cumsum(weight) / sum(weight)
   week[which(cum_share >= p)[1]]
@@ -262,12 +285,12 @@ season_windows <- catch_data_temp %>%
   semi_join(fishery_year_landings %>% filter(n.landings >= MIN_SEASON_LANDINGS),
             by = c("Fishery", "Batch.Year")) %>%
   group_by(Fishery, Batch.Year, Statistical.Week) %>%
-  summarise(pounds = sum(Pounds..Detail., na.rm = TRUE), .groups = "drop") %>%
+  summarise(revenue = sum(CFEC.Value..Detail., na.rm = TRUE), .groups = "drop") %>%
   group_by(Fishery, Batch.Year) %>%
-  filter(sum(pounds) > 0) %>%
+  filter(sum(revenue) > 0) %>%
   summarise(
-    season.start = weighted_percentile_week(Statistical.Week, pounds, 0.05),
-    season.end   = weighted_percentile_week(Statistical.Week, pounds, 0.95),
+    season.start = weighted_percentile_week(Statistical.Week, revenue, 0.05),
+    season.end   = weighted_percentile_week(Statistical.Week, revenue, 0.95),
     .groups = "drop"
   ) %>%
   mutate(season.length = season.end - season.start)
@@ -295,11 +318,11 @@ figure6 <- season_windows %>%
   geom_line(aes(y = season.end), color = "steelblue4", linewidth = 0.4) +
   facet_wrap(~ Fishery, scales = "free_y") +
   labs(
-    # Weighted by pounds, not revenue, see the "Pounds is also consistent"
-    # comment above. Ribbon width/position (season length/drift) and the
+    # Weighted by revenue, not pounds, see the "REVENUE" comment above
+    # Section 4. Ribbon width/position (season length/drift) and the
     # top-8-by-revenue selection belong in the caption, not here.
     title = "Season windows, top 8 fisheries by revenue",
-    subtitle = "Ribbon spans the pounds-weighted 5th-95th percentile week",
+    subtitle = "Ribbon spans the revenue-weighted 5th-95th percentile week",
     x = "Year", y = "Statistical week"
   ) +
   theme_minimal()
