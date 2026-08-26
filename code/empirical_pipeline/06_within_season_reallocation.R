@@ -430,6 +430,19 @@ cat("Wrote table6_annual_instability_on_within_season_switching.tex\n")
 # since it comes from a ticket-level reload this script does and
 # 01_build_panel.R does not.
 
+# vessel_fisheries_06, each vessel's distinct ever-fished Fishery set per
+# THIS script's own reload, MIN_LANDINGS-gated (currently 1, any ticket row,
+# no revenue threshold). Saved so 07_behavioral_heterogeneity.R's specialist
+# diagnostic can compare it directly against vessel_mean_share's Fishery set
+# from 01_build_panel.R, which gates on a DIFFERENT criterion
+# (vessel_fishery_year's fished = revenue > 0, an ANNUAL total, see
+# 01_build_panel.R Section 4). The two are not guaranteed to agree, a
+# fishery whose annual revenue total nets to zero or negative (a
+# correction/refund ticket offsetting a real landing, for instance) reads as
+# never-fished to 01_'s gate even if it had genuine positive-revenue weeks
+# that would show up here.
+vessel_fisheries_06 <- vessel_week_fishery %>% distinct(Vessel.ADFG.Number, Fishery)
+
 within_season_path <- file.path(intermediate_dir, "ch3_within_season.rdata")
-save(switching_by_vessel_year, season_windows, file = within_season_path)
+save(switching_by_vessel_year, season_windows, vessel_fisheries_06, file = within_season_path)
 cat("Saved within-season objects to", within_season_path, "\n")

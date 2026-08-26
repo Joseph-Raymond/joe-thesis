@@ -231,32 +231,109 @@ ggsave(file.path(figure_dir, "diagnostic_hbar_by_turnover_type.png"),
 cat("Wrote diagnostic_hbar_by_turnover_type.png\n")
 
 # ----------------------------------------------------------------------
-# Robustness. Same normalized-classifier models above, restricted to
-# multi-fishery vessels, excluding H_bar = 1 single-fishery specialists.
-# Motivated by the diagnostic figure just above, which showed the Low
-# turnover group is disproportionately specialists, vessels with zero
-# within-vessel H_bar variance to estimate a slope from, a likely
-# contributor to that group's near-zero R^2 and its sign instability
-# across specifications. is.specialist is built the same way Table 4 /
-# Figure 3 (05_table4_figure3.R) do it, n.fisheries.fished == 1 counted
-# off vessel_mean_share's Fishery dimension (each vessel's own ever-fished
-# set), not a floating-point H_bar == 1 comparison, for consistency with
-# that established convention.
+# Diagnostic. Cross-checks n.fisheries.fished (01_build_panel.R's fishery
+# count, gated on vessel_fishery_year$fished, an ANNUAL revenue > 0 test,
+# see 01_build_panel.R Section 4) against an independent count built off
+# THIS script's own within-season reload (vessel_fisheries_06, gated on
+# MIN_LANDINGS = 1 ticket rows fleet-wide, no revenue threshold at all).
+# Motivated by finding vessels classified High turnover despite counting
+# as a single-fishery specialist, which should be structurally impossible,
+# a vessel that only ever fished one fishery has zero within-season
+# switching in every year by construction, so a positive switching measure
+# is direct evidence 06_'s reload saw a second fishery 01_'s did not. The
+# two counts should agree and mostly do, but a fishery whose ANNUAL
+# revenue total nets to zero or negative (a correction/refund ticket
+# offsetting a real landing, for instance) reads as never-fished to 01_'s
+# annual gate even if some of its WEEKS had genuine positive revenue,
+# which is enough on its own to register real switching here. Diagnostic
+# only, prints to console, writes nothing, does not feed any table.
 # ----------------------------------------------------------------------
 
-if (!exists("vessel_mean_share")) load(panel_path)
+if (!exists("vessel_mean_share") || !exists("vessel_fishery_year")) load(panel_path)
+if (!exists("vessel_fisheries_06")) load(within_season_path)
 
 n_fisheries_fished <- vessel_mean_share %>%
   count(Vessel.ADFG.Number, name = "n.fisheries.fished")
 
-table7_data_norm_multi <- table7_data_norm %>%
-  left_join(n_fisheries_fished, by = "Vessel.ADFG.Number") %>%
-  filter(n.fisheries.fished > 1)
+n_fisheries_06 <- vessel_fisheries_06 %>%
+  count(Vessel.ADFG.Number, name = "n.fisheries.06")
 
-cat("Table 7 (normalized), multi-fishery vessels only:", nrow(table7_data_norm_multi),
-    " of", nrow(table7_data_norm), "(dropped",
-    nrow(table7_data_norm) - nrow(table7_data_norm_multi), "single-fishery specialists), High turnover:",
-    sum(table7_data_norm_multi$vessel.type.norm == "High turnover"), "\n")
+fishery_count_compare <- n_fisheries_fished %>%
+  full_join(n_fisheries_06, by = "Vessel.ADFG.Number") %>%
+  mutate(across(starts_with("n.fisheries"), ~ replace_na(., 0)))
+
+n_mismatch_specialist <- fishery_count_compare %>% filter(n.fisheries.fished == 1, n.fisheries.06 > 1)
+
+cat("Vessels where 01_build_panel.R counts exactly 1 ever-fished fishery but",
+    "06_within_season_reallocation.R's own reload counts more:", nrow(n_mismatch_specialist),
+    " of", nrow(fishery_count_compare), "vessels total\n")
+
+# For a handful of these, pull the SPECIFIC extra fishery(ies) 06_ sees that
+# 01_ does not, and that fishery's full per-year revenue/fished history from
+# vessel_fishery_year, to check directly whether the annual-revenue-nets-
+# to-zero-or-negative hypothesis above is actually what is happening, or
+# whether it is something else entirely (a vessel ID cleaning divergence,
+# a year-range mismatch, etc).
+sample_mismatch_vessels <- head(n_mismatch_specialist$Vessel.ADFG.Number, 10)
+
+for (v in sample_mismatch_vessels) {
+  fisheries_01 <- vessel_mean_share %>% filter(Vessel.ADFG.Number == v) %>% pull(Fishery)
+  fisheries_06 <- vessel_fisheries_06 %>% filter(Vessel.ADFG.Number == v) %>% pull(Fishery)
+  extra_fisheries <- setdiff(fisheries_06, fisheries_01)
+
+  cat("\nVessel", v, ", 01_ fisheries:", paste(fisheries_01, collapse = ", "),
+      " 06_ fisheries:", paste(fisheries_06, collapse = ", "),
+      " extra (06_ only):", paste(extra_fisheries, collapse = ", "), "\n")
+
+  if (length(extra_fisheries) > 0) {
+    print(
+      vessel_fishery_year %>%
+        filter(Vessel.ADFG.Number == v, Fishery %in% extra_fisheries) %>%
+        select(Batch.Year, Fishery, revenue, held, fished) %>%
+        arrange(Fishery, Batch.Year)
+    )
+  }
+}
+
+# ----------------------------------------------------------------------
+# Robustness. Same normalized-classifier structure as the full-sample
+# version above, but the median split itself is now computed WITHIN the
+# eligible sample (meets.min.years, finite positive rev.cv, multi-fishery)
+# rather than on the full switching-measure population and filtered down
+# afterward. The full-sample version's median is taken over every vessel
+# with a computable switching measure, including specialists and vessels
+# that never clear meets.min.years and so never enter the regression
+# either way, so its Low/High split does not describe the sample actually
+# being tested. Restricting first and then splitting on THAT restricted
+# sample's own median instead answers "how does log(rev.cv) ~ H_bar differ
+# for the more versus less reallocating HALF of the vessels actually
+# eligible for this regression," the comparison Table 7/Figure 8 are meant
+# to make. is.specialist exclusion (n.fisheries.fished > 1) is applied
+# before the median is taken, same as before, so a specialist can no
+# longer end up on either side of this particular split by construction,
+# though the diagnostic above still matters for anything elsewhere in the
+# chapter that relies on n.fisheries.fished being accurate.
+# ----------------------------------------------------------------------
+
+eligible_vessels <- vessel_summary %>%
+  filter(meets.min.years, is.finite(rev.cv), rev.cv > 0) %>%
+  left_join(n_fisheries_fished, by = "Vessel.ADFG.Number") %>%
+  filter(n.fisheries.fished > 1) %>%
+  inner_join(
+    switching_by_vessel_year %>%
+      group_by(Vessel.ADFG.Number) %>%
+      summarise(within.season.switching.norm = mean(weekly.switching.per.transition), .groups = "drop"),
+    by = "Vessel.ADFG.Number"
+  )
+
+table7_data_norm_multi <- eligible_vessels %>%
+  mutate(vessel.type.norm = if_else(within.season.switching.norm > median(within.season.switching.norm),
+                                     "High turnover", "Low turnover"))
+
+cat("Table 7 (normalized), median split on the eligible (multi-fishery, meets.min.years) sample:",
+    nrow(table7_data_norm_multi), " eligible median switching:",
+    round(median(table7_data_norm_multi$within.season.switching.norm), 4),
+    " High turnover:", sum(table7_data_norm_multi$vessel.type.norm == "High turnover"), "\n")
 
 model_low_raw_norm_multi  <- feols(log(rev.cv) ~ H_bar, data = filter(table7_data_norm_multi, vessel.type.norm == "Low turnover"), vcov = "hetero")
 model_high_raw_norm_multi <- feols(log(rev.cv) ~ H_bar, data = filter(table7_data_norm_multi, vessel.type.norm == "High turnover"), vcov = "hetero")
@@ -266,10 +343,8 @@ model_high_fe_norm_multi  <- feols(log(rev.cv) ~ H_bar | prime.fishery, data = f
 model_interaction_norm_multi <- feols(log(rev.cv) ~ H_bar * within.season.switching.norm | prime.fishery,
                                        data = table7_data_norm_multi, vcov = "hetero")
 
-cat("Multi-fishery-only slope, Low turnover:", round(coef(model_low_raw_norm_multi)["H_bar"], 4),
-    " High turnover:", round(coef(model_high_raw_norm_multi)["H_bar"], 4),
-    " (full-sample normalized version gave Low:", round(coef(model_low_raw_norm)["H_bar"], 4),
-    " High:", round(coef(model_high_raw_norm)["H_bar"], 4), ")\n")
+cat("Eligible-sample-median slope, Low turnover:", round(coef(model_low_raw_norm_multi)["H_bar"], 4),
+    " High turnover:", round(coef(model_high_raw_norm_multi)["H_bar"], 4), "\n")
 
 etable(
   model_low_raw_norm_multi, model_high_raw_norm_multi, model_low_fe_norm_multi, model_high_fe_norm_multi, model_interaction_norm_multi,
