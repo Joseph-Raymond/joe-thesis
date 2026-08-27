@@ -119,7 +119,20 @@ run_all_rolling.R                              # sources everything below in ord
   07b_behavioral_heterogeneity_rolling.R        # Table 7-rolling, Table 8-rolling, figure8b path
   08b_state_contingent_activation_rolling.R     # Table 10/11-rolling, figure10b path
   09b_seasonal_overlap_rolling.R                # Table 12-rolling, pre/post-1995 overlap diagnostic
+  10b_network_similarity_rolling.R              # Table 13-rolling (needs 08b_'s saved activation panel)
 ```
+
+`10b_` is a rolling-window twin of the baseline's `10_network_similarity.R`, added after the
+baseline Table 13 addition to the writeup, not part of the original three-tier build. The
+co-participation network itself stays all-years pooled, unchanged from baseline, same reasoning
+`09b_` gives for keeping seasonal overlap pooled rather than rebuilt per window. Only the
+regression is refit on the rolling activation sample, with `window.start` added to the fixed
+effects and to clustering. Unlike `09b_`'s own Table 12-rolling, `10b_` runs the mandatory
+stride-6 phase check (`roll_phase_check()`) on every headline coefficient it reports, six rows
+appended to `table_rolling_overlap_robustness.tex`, since the whole point of adding it was to
+check whether the two-way-clustered standard errors on the network results are trustworthy or
+whether the overlapping-window stacking is manufacturing precision. `09b_`'s own Table 12-rolling
+was never run through this check and is a candidate for the same treatment later.
 
 `06b_` must run before `07b_` (07b_ loads `ch3_rolling_tau.rdata`, built by
 06b_). Every other script only depends on `01b_`'s `ch3_rolling.rdata`

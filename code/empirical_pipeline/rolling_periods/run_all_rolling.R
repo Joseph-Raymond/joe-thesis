@@ -1,7 +1,7 @@
 # Chapter 3 empirical pipeline, rolling-window (vessel-period) master script
 #
 # Runs the rolling-window parallel analysis, 01b_build_rolling_panel.R
-# through 09b_seasonal_overlap_rolling.R, in order. Mirrors run_all.R's own
+# through 10b_network_similarity_rolling.R, in order. Mirrors run_all.R's own
 # structure exactly (source() with no local =, so every script shares one
 # global session and each wipes it at its own start via
 # source("code/empirical_pipeline/00_setup.R")'s rm(list = ls())), see
@@ -37,3 +37,4 @@ source("code/empirical_pipeline/rolling_periods/06b_within_season_reallocation_r
 source("code/empirical_pipeline/rolling_periods/07b_behavioral_heterogeneity_rolling.R")
 source("code/empirical_pipeline/rolling_periods/08b_state_contingent_activation_rolling.R")
 source("code/empirical_pipeline/rolling_periods/09b_seasonal_overlap_rolling.R")
+source("code/empirical_pipeline/rolling_periods/10b_network_similarity_rolling.R")

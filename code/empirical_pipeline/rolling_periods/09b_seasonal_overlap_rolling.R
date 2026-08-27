@@ -163,3 +163,70 @@ print(etable(m_table12_roll))
 
 cat("Wrote table12_activation_by_seasonal_overlap_rolling.tex. N:", nrow(activation_data_overlap.rolling),
     " distinct vessels:", n_distinct(activation_data_overlap.rolling$Vessel.ADFG.Number), "\n")
+
+# ============================================================================
+# 4. Mandatory stride-6 phase check (design Section 2.2, Layer 3), added
+#    retroactively. This model was originally shipped with only two-way
+#    clustering and no phase check, the one headline rolling model in this
+#    folder that skipped it. 10b_network_similarity_rolling.R's own Table
+#    13-rolling check (which refits this same shock x overlap interaction
+#    as part of its own column 1 and column 3) is what exposed the gap, so
+#    it is closed here too rather than only in the newer script. Checks all
+#    three coefficients, the two main effects and the interaction, same
+#    reasoning 10b_ gives for checking more than just the headline
+#    interaction, a collapse or reversal in either main effect under the
+#    phase check would be just as informative as an interaction that fails
+#    it.
+# ============================================================================
+
+pc_shock <- roll_phase_check(
+  fml = activated ~ shock * overlap.with.primary | Vessel.ADFG.Number + fishery.year + window.start,
+  data = activation_data_overlap.rolling, coef_name = "shock",
+  label = "Table 12-rolling: pooled overlap interaction"
+)
+pc_overlap_main <- roll_phase_check(
+  fml = activated ~ shock * overlap.with.primary | Vessel.ADFG.Number + fishery.year + window.start,
+  data = activation_data_overlap.rolling, coef_name = "overlap.with.primary",
+  label = "Table 12-rolling: pooled overlap interaction"
+)
+pc_overlap_interaction <- roll_phase_check(
+  fml = activated ~ shock * overlap.with.primary | Vessel.ADFG.Number + fishery.year + window.start,
+  data = activation_data_overlap.rolling, coef_name = "shock:overlap.with.primary",
+  label = "Table 12-rolling: pooled overlap interaction"
+)
+
+if (file.exists(ROLL_PHASE_CHECK_PATH)) {
+  load(ROLL_PHASE_CHECK_PATH)
+} else {
+  rolling_overlap_robustness <- tibble(
+    model = character(), coefficient = character(), estimate.full = double(),
+    se.full = double(), used.twoway.cluster = logical(),
+    phase.min = double(), phase.median = double(), phase.max = double(),
+    se.phase.median = double(), se.ratio = double(), flag.outside.phase.range = logical()
+  )
+}
+
+new_rows_table12 <- bind_rows(pc_shock$summary, pc_overlap_main$summary, pc_overlap_interaction$summary)
+rolling_overlap_robustness <- rolling_overlap_robustness %>%
+  filter(!(paste(model, coefficient) %in% paste(new_rows_table12$model, new_rows_table12$coefficient))) %>%
+  bind_rows(new_rows_table12)
+
+save(rolling_overlap_robustness, file = ROLL_PHASE_CHECK_PATH)
+
+print(
+  xtable(
+    rolling_overlap_robustness %>% select(-flag.outside.phase.range),
+    caption = "Rolling overlap-robustness check, full-panel two-way-clustered estimate versus the stride-6 non-overlapping phase estimates, one row per headline model coefficient",
+    label = "tab:ch3-rolling-overlap-robustness", digits = 4
+  ),
+  file = file.path(table_dir, "table_rolling_overlap_robustness.tex"),
+  include.rownames = FALSE
+)
+
+cat("Wrote table_rolling_overlap_robustness.tex (", nrow(rolling_overlap_robustness), "headline model rows so far)\n")
+
+if (any(rolling_overlap_robustness$flag.outside.phase.range)) {
+  cat("*** WARNING: the following headline models have a full-panel estimate outside their own",
+      "phase min-max range, inspect before trusting them: ***\n")
+  print(rolling_overlap_robustness %>% filter(flag.outside.phase.range) %>% select(model, coefficient))
+}
