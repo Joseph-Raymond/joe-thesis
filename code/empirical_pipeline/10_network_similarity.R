@@ -581,18 +581,39 @@ cat("Vessel-fishery-years with a usable n.remaining.vessels on activation_net:",
     sum(is.finite(activation_net$n.remaining.vessels) & activation_net$n.remaining.vessels > 0),
     "of", nrow(activation_net), "\n")
 
+# Second deep review caught two problems with the first cut of this model.
+# (1) It was labeled as column 3 plus a control but the formula never
+# actually included the overlap.with.primary terms, so the printed
+# comparison against coef3 was silently benchmarked against the wrong
+# baseline (col 2's shock:net.sim.z, not col 3's). Fixed by actually
+# including the overlap terms below, so this now really is col 3 plus a
+# control and the coef3 comparison is apples to apples.
+# (2) n.remaining.vessels (08_state_contingent_activation.R, a LANDINGS-side
+# annual count) is a proxy one step removed from the object that actually
+# drives the mechanism under test. The Jaccard denominator that would create
+# the artifact runs through n.vessels.B, the REGISTER-side, all-years-pooled
+# ever-holder count of the PRIMARY fishery (Section 1 above, joined onto
+# activation_net as part of network_long). Its main effect is fully absorbed
+# by Vessel.ADFG.Number (primary.fishery, and so n.vessels.B, is fixed per
+# vessel), but the shock interaction is still identified and is the sharper
+# version of this test, added alongside the original proxy rather than
+# replacing it.
 model_size_control <- feols(
-  activated ~ (shock * net.sim.z) + shock:log(n.remaining.vessels) + log(n.remaining.vessels) |
+  activated ~ (shock * overlap.with.primary) + (shock * net.sim.z) +
+    shock:log(n.remaining.vessels) + log(n.remaining.vessels) +
+    shock:log(n.vessels.B) |
     Vessel.ADFG.Number + fishery.year,
   data = activation_net, cluster = ~Vessel.ADFG.Number
 )
 
-cat("Section 5.4, printed-only decisive test, shock x net.sim.z with a shock-precision control\n")
-print(etable(model_size_control, headers = "Both plus shock-precision control (printed only)"))
+cat("Section 5.4, printed-only decisive test, shock x net.sim.z with two shock-precision controls\n")
+print(etable(model_size_control, headers = "Both plus shock-precision controls (printed only)"))
 
 coef_size_control <- coef(model_size_control)
 cat("  shock x net.sim.z, WITHOUT size control (col 3 above):", round(coef3[["shock:net.sim.z"]], 4), "\n")
-cat("  shock x net.sim.z, WITH size control:", round(coef_size_control[["shock:net.sim.z"]], 4), "\n")
+cat("  shock x net.sim.z, WITH size controls:", round(coef_size_control[["shock:net.sim.z"]], 4), "\n")
+cat("  shock x log(n.vessels.B), the sharper mechanism-relevant control, coefficient:",
+    round(coef_size_control[["shock:log(n.vessels.B)"]], 4), "\n")
 if (abs(coef_size_control[["shock:net.sim.z"]]) < abs(coef3[["shock:net.sim.z"]]) * 0.5) {
   cat("  Interaction shrinks by more than half once shock precision is controlled for,",
       "consistent with the sign miss being a measurement artifact rather than a real effect,",
@@ -634,28 +655,53 @@ if (abs(cor_resid_net) > COLLINEARITY_FLAG_THRESHOLD) {
 # linear interaction is fit on a regressor whose top 1 percent holds over
 # 15 percent of its own total mass (the NOTE printed in Section 3 above), so
 # a single linear coefficient there is closer to a leverage estimate off a
-# handful of pairs than an average effect across the distribution. i(),
-# not factor()*shock, so each quartile's own shock slope is reported
-# directly rather than as an interaction contrast requiring hand
-# arithmetic to unwind. ref = 1 (the lowest-similarity quartile) so the
-# other three coefficients read as "how different is this quartile's shock
-# slope from the lowest-similarity quartile's."
+# handful of pairs than an average effect across the distribution unless the
+# per-bin pattern is graded rather than concentrated in one bin.
+#
+# The first cut of this diagnostic used i(net.sim.quartile, shock, ref = 1)
+# with no separate shock term, on the mistaken assumption that ref = 1 would
+# make quartile 1 an omitted reference the way a factor dummy works. It does
+# not, fixest's i() deletes that level's interaction column outright, which
+# silently constrains quartile 1's own slope to zero rather than reporting
+# a contrast against it, so the three printed coefficients were close to
+# absolute per-quartile slopes with quartile 1 forced to zero, not
+# differences from quartile 1 as the old comment here claimed (caught in a
+# second deep review, confirmed against a calibrated simulation). Fixed
+# below by reporting ALL FOUR quartiles' own absolute slopes directly
+# (i(net.sim.quartile, shock), no ref, so nothing is constrained), with
+# i(net.sim.quartile, ref = 1) added separately as the quartile LEVEL
+# effect, since net.similarity is pair-level and only partly absorbed by
+# the vessel/fishery-year fixed effects.
+#
+# ntile() also splits any pair whose value sits exactly on a bin boundary
+# by row order rather than by value, which after the joins tracks vessel
+# and year ordering, an arbitrary tie-break. cut() on explicit quantile
+# breaks assigns by value instead. net.similarity is pair-level, so this
+# also switches to two-way clustering (vessel + Fishery), matching Section
+# 5.2's reasoning for the pooled column 3 model, since a bin's effective
+# sample size is closer to its count of distinct pairs than its count of
+# vessel-fishery-year rows.
+net_sim_quartile_breaks <- quantile(activation_net$net.similarity, probs = c(0, .25, .5, .75, 1))
+
 activation_net <- activation_net %>%
-  mutate(net.sim.quartile = ntile(net.similarity, 4))
+  mutate(net.sim.quartile = cut(net.similarity, breaks = net_sim_quartile_breaks,
+                                 include.lowest = TRUE, labels = FALSE))
 
 model_net_sim_binned <- feols(
-  activated ~ i(net.sim.quartile, shock, ref = 1) | Vessel.ADFG.Number + fishery.year,
-  data = activation_net, cluster = ~Vessel.ADFG.Number
+  activated ~ i(net.sim.quartile, shock) + i(net.sim.quartile, ref = 1) |
+    Vessel.ADFG.Number + fishery.year,
+  data = activation_net, cluster = ~ Vessel.ADFG.Number + Fishery
 )
 
 cat("Section 5.6, printed-only quartile-binned shock x net.similarity",
-    "(coefficients are shock-slope DIFFERENCES from the lowest-similarity quartile)\n")
+    "(coefficients are each quartile's OWN absolute shock slope, all four reported, none constrained)\n")
 print(etable(model_net_sim_binned, headers = "Shock slope by net.similarity quartile (printed only)"))
 cat("  net.similarity quartile boundaries\n")
-print(quantile(activation_net$net.similarity, probs = c(0, .25, .5, .75, 1)))
-cat("  If the quartile-4-vs-1 coefficient is much larger than quartile-2-vs-1 and",
-    "quartile-3-vs-1, the linear interaction above is being driven by the top bin",
-    "rather than describing a graded relationship\n")
+print(net_sim_quartile_breaks)
+cat("  Distinct (Fishery, primary.fishery) pairs per quartile, the effective sample behind each slope\n")
+print(activation_net %>% distinct(Fishery, primary.fishery, net.sim.quartile) %>% count(net.sim.quartile))
+cat("  A monotonically increasing (less negative, or more positive) slope from quartile 1 to 4",
+    "confirms the pooled linear interaction, a non-monotonic or reversed pattern would contradict it\n")
 
 # 5.7. Top-1-percent-trimmed refit, the direct complement to 5.6. Drops the
 # same observations the Section 3 NOTE flagged as holding a
