@@ -48,6 +48,10 @@
 # data/ch3_panel.rdata (vessel_fishery_year) and intermediate
 # data/ch3_activation.rdata (activation_data, saved by
 # 08_state_contingent_activation.R Section 6).
+#
+# Now also saves intermediate data/ch3_seasonal_overlap.rdata (overlap_long)
+# at the end (Section 4), which 10_network_similarity.R reads to build
+# Table 13 without a second raw-ticket reload.
 
 source("code/empirical_pipeline/00_setup.R")
 
@@ -244,8 +248,16 @@ activation_data_overlap <- activation_data %>%
 cat("Table 12 sample (activation candidates with a computable overlap to the predetermined primary):",
     nrow(activation_data_overlap), "of", nrow(activation_data), "\n")
 
+# cluster = ~Vessel.ADFG.Number explicitly, not left to fixest's default,
+# same fix and same reasoning as Table 10/11 in 08_state_contingent_
+# activation.R, checked directly against the real generated table, leaving
+# vcov unset here resolved to IID rather than to vessel-clustered, contrary
+# to what this table's own writeup discussion assumed ("only marginally
+# significant once standard errors are clustered on the vessel").
+# 10_network_similarity.R's Table 13 column 1 matches this exact call so it
+# still reproduces this table, if this line changes again that one should too.
 model_table12 <- feols(activated ~ shock * overlap.with.primary | Vessel.ADFG.Number + fishery.year,
-                        data = activation_data_overlap)
+                        data = activation_data_overlap, cluster = ~Vessel.ADFG.Number)
 
 etable(
   model_table12,
@@ -258,3 +270,17 @@ etable(
 print(etable(model_table12))
 
 cat("Wrote table12_activation_by_seasonal_overlap.tex\n")
+
+# ============================================================================
+# 4. Save
+# ============================================================================
+#
+# overlap_long (Fishery.A, Fishery.B, seasonal.overlap) is exactly what
+# 10_network_similarity.R needs to build Table 13 without redoing the
+# ~16M-row catch_data_temp reload this script already paid for, saved here
+# rather than making that script reload raw tickets a second time just to
+# rebuild the same fixed, all-years-pooled seasonal signature.
+
+seasonal_overlap_path <- file.path(intermediate_dir, "ch3_seasonal_overlap.rdata")
+save(overlap_long, file = seasonal_overlap_path)
+cat("Saved seasonal overlap table to", seasonal_overlap_path, "\n")

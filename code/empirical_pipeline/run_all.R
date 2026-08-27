@@ -1,6 +1,6 @@
 # Chapter 3 empirical pipeline, master script
 #
-# Runs 01_build_panel.R through 09_seasonal_overlap.R in order. Each script
+# Runs 01_build_panel.R through 10_network_similarity.R in order. Each script
 # sources 00_setup.R itself and reloads whatever intermediate data it needs,
 # so any of them can also be source()-d on its own instead of through this
 # file, see the run order notes in README.md.
@@ -17,3 +17,4 @@ source("code/empirical_pipeline/06_within_season_reallocation.R")
 source("code/empirical_pipeline/07_behavioral_heterogeneity.R")
 source("code/empirical_pipeline/08_state_contingent_activation.R")
 source("code/empirical_pipeline/09_seasonal_overlap.R")
+source("code/empirical_pipeline/10_network_similarity.R")

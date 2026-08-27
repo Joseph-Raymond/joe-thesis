@@ -203,179 +203,182 @@ print(etable(model_low_raw_norm, model_high_raw_norm, model_low_fe_norm, model_h
 
 cat("Wrote table7_slope_by_turnover_type_normalized.tex\n")
 
-# ----------------------------------------------------------------------
-# Diagnostic. H_bar distribution by turnover type, both classifiers side
-# by side. Not part of chapter3_outline.md, added to help explain why the
-# Low turnover slope is so unstable above (raw R^2 = 0.001, sign flips
-# with FE choice under the normalized classifier). A group whose H_bar
-# barely varies gives a regression slope almost no leverage to estimate
-# from, so a handful of vessels near the tails can swing the point
-# estimate, which is consistent with the instability already seen in both
-# Table 7 versions. Density rather than a histogram, the two groups have
-# very different N (Low ~4,500 vs High ~6,300 in both classifiers), so a
-# count-based histogram would visually exaggerate the size difference
-# rather than the shape difference this is meant to show.
-# ----------------------------------------------------------------------
+# # ----------------------------------------------------------------------
+# # Diagnostic. H_bar distribution by turnover type, both classifiers side
+# # by side. Not part of chapter3_outline.md, added to help explain why the
+# # Low turnover slope is so unstable above (raw R^2 = 0.001, sign flips
+# # with FE choice under the normalized classifier). A group whose H_bar
+# # barely varies gives a regression slope almost no leverage to estimate
+# # from, so a handful of vessels near the tails can swing the point
+# # estimate, which is consistent with the instability already seen in both
+# # Table 7 versions. Density rather than a histogram, the two groups have
+# # very different N (Low ~4,500 vs High ~6,300 in both classifiers), so a
+# # count-based histogram would visually exaggerate the size difference
+# # rather than the shape difference this is meant to show.
+# # ----------------------------------------------------------------------
+# 
+# hbar_by_type <- bind_rows(
+#   table7_data %>% transmute(H_bar, vessel.type, classifier = "Raw classifier"),
+#   table7_data_norm %>% transmute(H_bar, vessel.type = vessel.type.norm, classifier = "Normalized classifier")
+# )
+# 
+# figure_hbar_by_type <- hbar_by_type %>%
+#   ggplot(aes(x = H_bar, fill = vessel.type, color = vessel.type)) +
+#   geom_density(alpha = 0.35, linewidth = 0.6) +
+#   facet_wrap(~ classifier) +
+#   scale_fill_manual(values = c("Low turnover" = "steelblue", "High turnover" = "firebrick")) +
+#   scale_color_manual(values = c("Low turnover" = "steelblue", "High turnover" = "firebrick")) +
+#   labs(
+#     title = "H_bar distribution by turnover type",
+#     subtitle = "Diagnostic for Table 7's Low-turnover instability, not an outline figure",
+#     x = expression(bar(H)), y = "Density", fill = NULL, color = NULL
+#   ) +
+#   theme_minimal()
+# 
+# ggsave(file.path(figure_dir, "diagnostic_hbar_by_turnover_type.png"),
+#        figure_hbar_by_type, width = 9, height = 5, dpi = 300)
+# 
+# cat("Wrote diagnostic_hbar_by_turnover_type.png\n")
+# 
+# # ----------------------------------------------------------------------
+# # Diagnostic. A first pass at this (comparing n.fisheries.fished against a
+# # raw distinct-Fishery count off 06_'s own reload, vessel_fisheries_06)
+# # found 13 vessels where the counts disagreed, but every one turned out to
+# # be a $0-value ticket (revenue == 0, fished == FALSE in
+# # vessel_fishery_year for the "extra" fishery in every row), not a real
+# # second fishery. A $0-revenue fishery is share-INERT, share = revenue /
+# # week.revenue = 0 / anything = 0 in every week it appears, so it cannot
+# # move weekly.switching no matter how many weeks it shows up in. That
+# # raw-count comparison was answering an adjacent question (does
+# # n.fisheries.fished undercount vessels with $0-value/bycatch-style
+# # tickets, yes, confirms the concern raised earlier about season_windows)
+# # rather than the one that actually motivated it. The direct test is
+# # whether a TRUE specialist's own switching measure, already computed,
+# # already share-based, is ever actually positive.
+# # ----------------------------------------------------------------------
+# 
+# if (!exists("vessel_mean_share") || !exists("vessel_year")) load(panel_path)
 
-hbar_by_type <- bind_rows(
-  table7_data %>% transmute(H_bar, vessel.type, classifier = "Raw classifier"),
-  table7_data_norm %>% transmute(H_bar, vessel.type = vessel.type.norm, classifier = "Normalized classifier")
-)
-
-figure_hbar_by_type <- hbar_by_type %>%
-  ggplot(aes(x = H_bar, fill = vessel.type, color = vessel.type)) +
-  geom_density(alpha = 0.35, linewidth = 0.6) +
-  facet_wrap(~ classifier) +
-  scale_fill_manual(values = c("Low turnover" = "steelblue", "High turnover" = "firebrick")) +
-  scale_color_manual(values = c("Low turnover" = "steelblue", "High turnover" = "firebrick")) +
-  labs(
-    title = "H_bar distribution by turnover type",
-    subtitle = "Diagnostic for Table 7's Low-turnover instability, not an outline figure",
-    x = expression(bar(H)), y = "Density", fill = NULL, color = NULL
-  ) +
-  theme_minimal()
-
-ggsave(file.path(figure_dir, "diagnostic_hbar_by_turnover_type.png"),
-       figure_hbar_by_type, width = 9, height = 5, dpi = 300)
-
-cat("Wrote diagnostic_hbar_by_turnover_type.png\n")
-
-# ----------------------------------------------------------------------
-# Diagnostic. A first pass at this (comparing n.fisheries.fished against a
-# raw distinct-Fishery count off 06_'s own reload, vessel_fisheries_06)
-# found 13 vessels where the counts disagreed, but every one turned out to
-# be a $0-value ticket (revenue == 0, fished == FALSE in
-# vessel_fishery_year for the "extra" fishery in every row), not a real
-# second fishery. A $0-revenue fishery is share-INERT, share = revenue /
-# week.revenue = 0 / anything = 0 in every week it appears, so it cannot
-# move weekly.switching no matter how many weeks it shows up in. That
-# raw-count comparison was answering an adjacent question (does
-# n.fisheries.fished undercount vessels with $0-value/bycatch-style
-# tickets, yes, confirms the concern raised earlier about season_windows)
-# rather than the one that actually motivated it. The direct test is
-# whether a TRUE specialist's own switching measure, already computed,
-# already share-based, is ever actually positive.
-# ----------------------------------------------------------------------
-
-if (!exists("vessel_mean_share") || !exists("vessel_year")) load(panel_path)
-
+# Still needed below (Table 7/8 multi-fishery specs exclude n.fisheries.fished
+# == 1 specialists), kept live even though the diagnostic investigation that
+# originally motivated it is commented out above.
 n_fisheries_fished <- vessel_mean_share %>%
   count(Vessel.ADFG.Number, name = "n.fisheries.fished")
 
-specialist_switching <- n_fisheries_fished %>%
-  filter(n.fisheries.fished == 1) %>%
-  inner_join(switching_by_vessel_year, by = "Vessel.ADFG.Number") %>%
-  filter(weekly.switching > 0)
-
-cat("Vessel-years where 01_build_panel.R counts the vessel as a lifetime single-fishery",
-    "specialist but 06_'s own switching measure is positive that year:", nrow(specialist_switching),
-    " across", n_distinct(specialist_switching$Vessel.ADFG.Number), "distinct vessels\n")
-
-# For each flagged vessel-year, pull that SAME vessel-year's total revenue
-# across every fishery from vessel_year (01_build_panel.R's object). If it
-# nets to <= 0 that year, active_vessel_years (vessel_year.rev > 0) drops
-# the WHOLE YEAR from vessel_share_panel before n.fisheries.fished is ever
-# computed, so a fishery with genuine per-week positive revenue that year
-# would never register with 01_ even though it is real activity, a
-# different, whole-year version of the same annual-netting problem rather
-# than a per-fishery one. If vessel.year.rev is clearly positive instead,
-# this points at something else, worth chasing next (vessel ID cleaning
-# divergence between the two scripts' independently duplicated Section 2
-# cleaning steps would be the next thing to check).
-if (nrow(specialist_switching) > 0) {
-  specialist_switching_rev <- specialist_switching %>%
-    left_join(vessel_year %>% select(Vessel.ADFG.Number, Batch.Year, vessel.year.rev),
-              by = c("Vessel.ADFG.Number", "Batch.Year")) %>%
-    select(Vessel.ADFG.Number, Batch.Year, weekly.switching, n.active.weeks, vessel.year.rev)
-
-  # Summary first, over all flagged vessel-years, not just the 10 printed
-  # below, share with vessel.year.rev <= 0 is the direct test of the
-  # whole-year-nets-to-zero hypothesis above.
-  cat("Of those", nrow(specialist_switching_rev), "flagged vessel-years, share with",
-      "vessel.year.rev <= 0 that year:",
-      round(mean(specialist_switching_rev$vessel.year.rev <= 0), 4), "\n")
-
-  # as.data.frame() so the console print does not truncate columns to fit
-  # width, a tibble print silently dropped vessel.year.rev off the right
-  # edge on the last run, the one column this diagnostic exists to show.
-  print(as.data.frame(specialist_switching_rev %>% arrange(desc(weekly.switching)) %>% head(10)))
-}
-
-# ----------------------------------------------------------------------
-# Diagnostic, refined. vessel.year.rev above is the vessel's TOTAL revenue
-# across every fishery that year, and it came back clearly positive for
-# every flagged vessel-year (checked directly against the printed sample,
-# $2,008 to $77,884), ruling out the whole-year-nets-to-zero hypothesis.
-# The right test needs the SPECIFIC extra fishery's OWN revenue in THAT
-# flagged year, not the vessel-year total, the original per-fishery
-# hypothesis (01_'s fished = revenue > 0 gate) but scoped down to the
-# vessel-years that actually produced switching, rather than the
-# fleet-wide, all-years-pooled scope the first diagnostic used, which is
-# what surfaced 13 unrelated, switching-inert vessels instead of these.
-# ----------------------------------------------------------------------
-
-if (!exists("vessel_fisheries_06")) load(within_season_path)
-
-extra_fishery_by_vessel <- specialist_switching %>%
-  distinct(Vessel.ADFG.Number) %>%
-  left_join(vessel_mean_share %>% group_by(Vessel.ADFG.Number) %>% summarise(fisheries.01 = list(Fishery), .groups = "drop"),
-            by = "Vessel.ADFG.Number") %>%
-  left_join(vessel_fisheries_06 %>% group_by(Vessel.ADFG.Number) %>% summarise(fisheries.06 = list(Fishery), .groups = "drop"),
-            by = "Vessel.ADFG.Number") %>%
-  mutate(extra.fishery = map2(fisheries.06, fisheries.01, setdiff)) %>%
-  select(Vessel.ADFG.Number, extra.fishery) %>%
-  unnest(extra.fishery)
-
-# Left-joined per flagged (vessel, year), not per vessel, since a vessel
-# can have more than one candidate extra fishery across its whole panel
-# but only one is necessarily the one active in a given flagged year.
-# !is.na(fished) after the join keeps only the extra fishery actually
-# held/fished (per 01_'s reckoning) THAT specific year, dropping
-# candidates irrelevant to that particular flagged vessel-year.
-extra_fishery_year_revenue <- specialist_switching %>%
-  distinct(Vessel.ADFG.Number, Batch.Year) %>%
-  inner_join(extra_fishery_by_vessel, by = "Vessel.ADFG.Number") %>%
-  left_join(
-    vessel_fishery_year %>% select(Vessel.ADFG.Number, Batch.Year, Fishery, revenue, held, fished),
-    by = c("Vessel.ADFG.Number", "Batch.Year", "extra.fishery" = "Fishery")
-  ) %>%
-  filter(!is.na(fished))
-
-cat("Of", nrow(extra_fishery_year_revenue), "flagged (vessel, year, extra fishery) rows, share",
-    "with that SPECIFIC fishery's revenue <= 0 in that SPECIFIC year:",
-    round(mean(extra_fishery_year_revenue$revenue <= 0), 4), "\n")
-
-print(as.data.frame(extra_fishery_year_revenue %>% arrange(Vessel.ADFG.Number, Batch.Year) %>% head(15)))
-
-# ----------------------------------------------------------------------
-# Diagnostic, final. Only 3 of 168 flagged (vessel, year, extra fishery)
-# rows above even found a matching row in vessel_fishery_year, the other
-# 165 came back NA, meaning 01_build_panel.R's own independent reload of
-# catch_data_temp (fished_vessel_fishery_year, Section 2) produced NO
-# ticket row at all for that vessel-year-fishery, not a $0-value row, no
-# row whatsoever. That rules out a revenue-threshold explanation for the
-# bulk of these and points at an actual difference in which raw tickets
-# the two scripts' independently duplicated Section 2 cleaning code ends
-# up with for the same underlying catch_data_temp.rdata file. The only
-# way to see that directly is an unaggregated, ticket-level look at one
-# specific flagged case, printing every raw row for that exact vessel-year
-# before either script's own cleaning/aggregation touches it.
-# ----------------------------------------------------------------------
-
-check_vessel <- 64147
-check_year   <- 2020
-
-load(file.path(intermediate_dir, "catch_data_temp.rdata"))
-
-raw_check <- catch_data_temp %>%
-  filter(Vessel.ADFG.Number == check_vessel, Batch.Year == check_year) %>%
-  mutate(Fishery = strip_fishery_space(CFEC.Permit.Fishery)) %>%
-  select(Vessel.ADFG.Number, Batch.Year, CFEC.Permit.Fishery, Fishery,
-         CFEC.Value..Detail., Pounds..Detail., Date.Landed)
-
-cat("Raw catch_data_temp ticket rows for vessel", check_vessel, "year", check_year, ":", nrow(raw_check), "\n")
-print(as.data.frame(raw_check))
-
+# specialist_switching <- n_fisheries_fished %>%
+#   filter(n.fisheries.fished == 1) %>%
+#   inner_join(switching_by_vessel_year, by = "Vessel.ADFG.Number") %>%
+#   filter(weekly.switching > 0)
+# 
+# cat("Vessel-years where 01_build_panel.R counts the vessel as a lifetime single-fishery",
+#     "specialist but 06_'s own switching measure is positive that year:", nrow(specialist_switching),
+#     " across", n_distinct(specialist_switching$Vessel.ADFG.Number), "distinct vessels\n")
+# 
+# # For each flagged vessel-year, pull that SAME vessel-year's total revenue
+# # across every fishery from vessel_year (01_build_panel.R's object). If it
+# # nets to <= 0 that year, active_vessel_years (vessel_year.rev > 0) drops
+# # the WHOLE YEAR from vessel_share_panel before n.fisheries.fished is ever
+# # computed, so a fishery with genuine per-week positive revenue that year
+# # would never register with 01_ even though it is real activity, a
+# # different, whole-year version of the same annual-netting problem rather
+# # than a per-fishery one. If vessel.year.rev is clearly positive instead,
+# # this points at something else, worth chasing next (vessel ID cleaning
+# # divergence between the two scripts' independently duplicated Section 2
+# # cleaning steps would be the next thing to check).
+# if (nrow(specialist_switching) > 0) {
+#   specialist_switching_rev <- specialist_switching %>%
+#     left_join(vessel_year %>% select(Vessel.ADFG.Number, Batch.Year, vessel.year.rev),
+#               by = c("Vessel.ADFG.Number", "Batch.Year")) %>%
+#     select(Vessel.ADFG.Number, Batch.Year, weekly.switching, n.active.weeks, vessel.year.rev)
+# 
+#   # Summary first, over all flagged vessel-years, not just the 10 printed
+#   # below, share with vessel.year.rev <= 0 is the direct test of the
+#   # whole-year-nets-to-zero hypothesis above.
+#   cat("Of those", nrow(specialist_switching_rev), "flagged vessel-years, share with",
+#       "vessel.year.rev <= 0 that year:",
+#       round(mean(specialist_switching_rev$vessel.year.rev <= 0), 4), "\n")
+# 
+#   # as.data.frame() so the console print does not truncate columns to fit
+#   # width, a tibble print silently dropped vessel.year.rev off the right
+#   # edge on the last run, the one column this diagnostic exists to show.
+#   print(as.data.frame(specialist_switching_rev %>% arrange(desc(weekly.switching)) %>% head(10)))
+# }
+# 
+# # ----------------------------------------------------------------------
+# # Diagnostic, refined. vessel.year.rev above is the vessel's TOTAL revenue
+# # across every fishery that year, and it came back clearly positive for
+# # every flagged vessel-year (checked directly against the printed sample,
+# # $2,008 to $77,884), ruling out the whole-year-nets-to-zero hypothesis.
+# # The right test needs the SPECIFIC extra fishery's OWN revenue in THAT
+# # flagged year, not the vessel-year total, the original per-fishery
+# # hypothesis (01_'s fished = revenue > 0 gate) but scoped down to the
+# # vessel-years that actually produced switching, rather than the
+# # fleet-wide, all-years-pooled scope the first diagnostic used, which is
+# # what surfaced 13 unrelated, switching-inert vessels instead of these.
+# # ----------------------------------------------------------------------
+# 
+# if (!exists("vessel_fisheries_06")) load(within_season_path)
+# 
+# extra_fishery_by_vessel <- specialist_switching %>%
+#   distinct(Vessel.ADFG.Number) %>%
+#   left_join(vessel_mean_share %>% group_by(Vessel.ADFG.Number) %>% summarise(fisheries.01 = list(Fishery), .groups = "drop"),
+#             by = "Vessel.ADFG.Number") %>%
+#   left_join(vessel_fisheries_06 %>% group_by(Vessel.ADFG.Number) %>% summarise(fisheries.06 = list(Fishery), .groups = "drop"),
+#             by = "Vessel.ADFG.Number") %>%
+#   mutate(extra.fishery = map2(fisheries.06, fisheries.01, setdiff)) %>%
+#   select(Vessel.ADFG.Number, extra.fishery) %>%
+#   unnest(extra.fishery)
+# 
+# # Left-joined per flagged (vessel, year), not per vessel, since a vessel
+# # can have more than one candidate extra fishery across its whole panel
+# # but only one is necessarily the one active in a given flagged year.
+# # !is.na(fished) after the join keeps only the extra fishery actually
+# # held/fished (per 01_'s reckoning) THAT specific year, dropping
+# # candidates irrelevant to that particular flagged vessel-year.
+# extra_fishery_year_revenue <- specialist_switching %>%
+#   distinct(Vessel.ADFG.Number, Batch.Year) %>%
+#   inner_join(extra_fishery_by_vessel, by = "Vessel.ADFG.Number") %>%
+#   left_join(
+#     vessel_fishery_year %>% select(Vessel.ADFG.Number, Batch.Year, Fishery, revenue, held, fished),
+#     by = c("Vessel.ADFG.Number", "Batch.Year", "extra.fishery" = "Fishery")
+#   ) %>%
+#   filter(!is.na(fished))
+# 
+# cat("Of", nrow(extra_fishery_year_revenue), "flagged (vessel, year, extra fishery) rows, share",
+#     "with that SPECIFIC fishery's revenue <= 0 in that SPECIFIC year:",
+#     round(mean(extra_fishery_year_revenue$revenue <= 0), 4), "\n")
+# 
+# print(as.data.frame(extra_fishery_year_revenue %>% arrange(Vessel.ADFG.Number, Batch.Year) %>% head(15)))
+# 
+# # ----------------------------------------------------------------------
+# # Diagnostic, final. Only 3 of 168 flagged (vessel, year, extra fishery)
+# # rows above even found a matching row in vessel_fishery_year, the other
+# # 165 came back NA, meaning 01_build_panel.R's own independent reload of
+# # catch_data_temp (fished_vessel_fishery_year, Section 2) produced NO
+# # ticket row at all for that vessel-year-fishery, not a $0-value row, no
+# # row whatsoever. That rules out a revenue-threshold explanation for the
+# # bulk of these and points at an actual difference in which raw tickets
+# # the two scripts' independently duplicated Section 2 cleaning code ends
+# # up with for the same underlying catch_data_temp.rdata file. The only
+# # way to see that directly is an unaggregated, ticket-level look at one
+# # specific flagged case, printing every raw row for that exact vessel-year
+# # before either script's own cleaning/aggregation touches it.
+# # ----------------------------------------------------------------------
+# 
+# check_vessel <- 64147
+# check_year   <- 2020
+# 
+# load(file.path(intermediate_dir, "catch_data_temp.rdata"))
+# 
+# raw_check <- catch_data_temp %>%
+#   filter(Vessel.ADFG.Number == check_vessel, Batch.Year == check_year) %>%
+#   mutate(Fishery = strip_fishery_space(CFEC.Permit.Fishery)) %>%
+#   select(Vessel.ADFG.Number, Batch.Year, CFEC.Permit.Fishery, Fishery,
+#          CFEC.Value..Detail., Pounds..Detail., Date.Landed)
+# 
+# cat("Raw catch_data_temp ticket rows for vessel", check_vessel, "year", check_year, ":", nrow(raw_check), "\n")
+# print(as.data.frame(raw_check))
+# 
 # ----------------------------------------------------------------------
 # Robustness. Same normalized-classifier structure as the full-sample
 # version above, but the median split itself is now computed WITHIN the

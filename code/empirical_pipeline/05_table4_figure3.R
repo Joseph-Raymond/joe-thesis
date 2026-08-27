@@ -69,8 +69,19 @@ cat("Vessels entering Table 4:", nrow(vessel_analysis),
 
 vessel_multi <- vessel_analysis %>% filter(!is.specialist)
 
-model_baseline   <- feols(rev.cv ~ H_bar | prime.fishery, data = vessel_multi)
-model_decomposed <- feols(rev.cv ~ H_LR + Phi | prime.fishery, data = vessel_multi)
+# vcov = "hetero", not left to fixest's default. vessel_multi is
+# cross-sectional (one row per vessel), so a vessel cluster would be
+# degenerate, and checked directly against the real generated table, leaving
+# vcov unset here resolves to IID rather than to "cluster on the first fixed
+# effect" as this pipeline's other comments (Table 6, Table 7/8/9) assumed,
+# which is a codebase-wide mistaken assumption about fixest's actual default,
+# not just a Table 4 issue. IID understates the standard error whenever the
+# true errors are heteroskedastic, which the fixed-effect residuals here have
+# no reason not to be, so this was silently making the decomposition's
+# significance claims too strong. Matches Table 7/8/9's own vcov = "hetero"
+# choice for the same reason on the same kind of cross-sectional data.
+model_baseline   <- feols(rev.cv ~ H_bar | prime.fishery, data = vessel_multi, vcov = "hetero")
+model_decomposed <- feols(rev.cv ~ H_LR + Phi | prime.fishery, data = vessel_multi, vcov = "hetero")
 
 # Standardized versions, z-scoring the outcome and regressors before fitting
 # so coefficients are comparable in size across models (chapter3_plan.md
@@ -80,8 +91,8 @@ model_decomposed <- feols(rev.cv ~ H_LR + Phi | prime.fishery, data = vessel_mul
 vessel_std <- vessel_multi %>%
   mutate(across(c(rev.cv, H_bar, H_LR, Phi), ~ as.numeric(scale(.x)), .names = "z.{.col}"))
 
-model_baseline_std   <- feols(z.rev.cv ~ z.H_bar | prime.fishery, data = vessel_std)
-model_decomposed_std <- feols(z.rev.cv ~ z.H_LR + z.Phi | prime.fishery, data = vessel_std)
+model_baseline_std   <- feols(z.rev.cv ~ z.H_bar | prime.fishery, data = vessel_std, vcov = "hetero")
+model_decomposed_std <- feols(z.rev.cv ~ z.H_LR + z.Phi | prime.fishery, data = vessel_std, vcov = "hetero")
 
 etable(
   model_baseline, model_decomposed, model_baseline_std, model_decomposed_std,
@@ -107,14 +118,14 @@ cat("Standardized share of the decomposed slope loading onto Phi:", round(g2_sha
 # silently dropped, a reviewer will ask what specialists do to the estimate.
 # ----------------------------------------------------------------------
 
-model_baseline_pooled   <- feols(rev.cv ~ H_bar | prime.fishery, data = vessel_analysis)
-model_decomposed_pooled <- feols(rev.cv ~ H_LR + Phi | prime.fishery, data = vessel_analysis)
+model_baseline_pooled   <- feols(rev.cv ~ H_bar | prime.fishery, data = vessel_analysis, vcov = "hetero")
+model_decomposed_pooled <- feols(rev.cv ~ H_LR + Phi | prime.fishery, data = vessel_analysis, vcov = "hetero")
 
 vessel_std_pooled <- vessel_analysis %>%
   mutate(across(c(rev.cv, H_bar, H_LR, Phi), ~ as.numeric(scale(.x)), .names = "z.{.col}"))
 
-model_baseline_std_pooled   <- feols(z.rev.cv ~ z.H_bar | prime.fishery, data = vessel_std_pooled)
-model_decomposed_std_pooled <- feols(z.rev.cv ~ z.H_LR + z.Phi | prime.fishery, data = vessel_std_pooled)
+model_baseline_std_pooled   <- feols(z.rev.cv ~ z.H_bar | prime.fishery, data = vessel_std_pooled, vcov = "hetero")
+model_decomposed_std_pooled <- feols(z.rev.cv ~ z.H_LR + z.Phi | prime.fishery, data = vessel_std_pooled, vcov = "hetero")
 
 etable(
   model_baseline_pooled, model_decomposed_pooled,

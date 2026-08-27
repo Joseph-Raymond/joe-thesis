@@ -4,17 +4,28 @@ Reproducible R scripts for the figures and tables in `Chapter3_outline.md`,
 Section 2 (Table 1, Table 2), Section 3 (Figure 1, Figure 2, Table 3),
 Section 4 (Table 4, Figure 3), Section 5 (Figure 5, Figure 6, Table 6),
 Section 6 (Table 7, Table 8, Figure 8, Figure 9), and Section 7 (Table 10,
-Figure 10, Table 11, Table 12). Every item marked `[maybe]` in the outline
-(Table 3b, Figure 4, Figure 7, Table 9) and the "if I have time" block at
-the end of Section 6 are skipped, not built here. Table 2 and Table 12 are
-the two exceptions, Table 2 turned out cheap enough to build alongside
-Table 1, and Table 12 became buildable once `09_seasonal_overlap.R` gave it
-an interaction ingredient neither originally-scoped one (the Section 5
+Figure 10, Table 11, Table 12, and Table 13). Every item marked `[maybe]` in
+the outline (Table 3b, Figure 4, Figure 7, Table 9) and the "if I have time"
+block at the end of Section 6 are skipped, not built here. Table 2, Table 12,
+and Table 13 are the exceptions, Table 2 turned out cheap enough to build
+alongside Table 1, and Table 12 became buildable once `09_seasonal_overlap.R`
+gave it an interaction ingredient neither originally-scoped one (the Section 5
 co-participation network, the Figure 3 return correlation) ever was, see
 that script's header. `09_seasonal_overlap.R` also builds Figure 11, which
 is not in the outline at all, a re-cut of Section 3's wedge by whether a
 held-but-unfished permit's season conflicted with what the vessel actually
 fished that year.
+
+`10_network_similarity.R` builds the second of those two originally-scoped
+interaction ingredients, the Section 5 co-participation network (Kroetz et al.
+2019, Addicott et al. 2018 style), previously listed below as skipped
+entirely for `06_within_season_reallocation.R`'s purposes. It is still
+skipped for Figure 7 (switch events weighted by that network, out of scope
+for this addition), but is now built off the saved panel alone for Table 13,
+a simple pairwise Jaccard similarity of co-held vessel sets rather than the
+closeness-centrality version the outline names, see that script's header for
+why. This adds Table 13 (a three-column extension of Table 12) and the
+optional Table 14 (a small face-validity exhibit), neither in the outline.
 
 ## Rerun 01 through 08 before trusting ANY existing output, `H_LR` was wrong
 
@@ -90,6 +101,7 @@ existing code).
 07_behavioral_heterogeneity.R     # Table 7, Table 8, Figure 8, Figure 9 (appendix)
 08_state_contingent_activation.R  # Table 10, Figure 10, Table 11
 09_seasonal_overlap.R             # Table 12, Figure 11
+10_network_similarity.R           # Table 13, Table 14
 ```
 
 Each of 02 through 05 loads `intermediate data/ch3_panel.rdata` if the panel
@@ -119,6 +131,11 @@ loads rather than redoing that reload, so 06 needs to run before 07. 08 does
 its own independent reload and does not depend on 06 or 07, but now saves
 `intermediate data/ch3_activation.rdata` (`activation_data`), which
 `09_seasonal_overlap.R` loads for Table 12, so 08 needs to run before 09.
+`09_seasonal_overlap.R` in turn now saves `intermediate data/ch3_seasonal_overlap.rdata`
+(`overlap_long`), which `10_network_similarity.R` loads alongside `ch3_panel.rdata`
+and `ch3_activation.rdata`, so 09 needs to run before 10. `10_network_similarity.R`
+needs no raw ticket reload at all, everything it builds comes off these three
+saved objects, so it runs in seconds.
 
 `01_build_panel.R` also saves `vessel_period_summary`/`owner_period_summary`,
 `H_bar`/`H_LR`/`Phi`/`rev.cv` computed separately within three roughly-equal

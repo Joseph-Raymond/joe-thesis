@@ -154,6 +154,15 @@ catch_data_temp$Vessel.ADFG.Number[catch_data_temp$Vessel.ADFG.Number == 62.39] 
 catch_data_temp <- catch_data_temp %>% filter(!(Vessel.ADFG.Number %in% BAD_VESSEL_IDS))
 catch_data_temp$Vessel.ADFG.Number <- as.integer(catch_data_temp$Vessel.ADFG.Number)
 
+# Pounds..Detail. loads as an R integer. This script only ever sums it within
+# a single (Fishery, Batch.Year) or (Vessel.ADFG.Number, Fishery, Batch.Year)
+# cell, not cumsum()-ed across a whole season the way Figure 6 does in
+# 06_within_season_reallocation.R, so the overflow risk is smaller here, but
+# the same 32-bit ceiling still applies to any one cell's sum and the fix is
+# the same one line applied there and in 09_seasonal_overlap.R, coerce before
+# anything sums it.
+catch_data_temp[["Pounds..Detail."]] <- as.numeric(catch_data_temp[["Pounds..Detail."]])
+
 catch_data_temp <- catch_data_temp %>%
   filter(Batch.Year >= MIN_YEAR, Batch.Year <= MAX_YEAR) %>%
   mutate(Fishery = strip_fishery_space(CFEC.Permit.Fishery)) %>%
@@ -236,7 +245,16 @@ activation_data <- activation_candidates %>%
 cat("Activation regression sample:", nrow(activation_data), "\n")
 cat("Mean activation rate:", round(mean(activation_data$activated), 3), "\n")
 
-model_activation <- feols(activated ~ shock | Vessel.ADFG.Number + fishery.year, data = activation_data)
+# cluster = ~Vessel.ADFG.Number explicitly, not left to fixest's default.
+# activation_data is a genuine panel (a vessel appears once per held,
+# non-primary fishery per year, so repeatedly), and checked directly against
+# the real generated table, leaving vcov unset here resolves to IID rather
+# than to "cluster on the first fixed effect," a mistaken assumption this
+# pipeline's other comments made about fixest's actual default. IID ignores
+# the repeated-vessel structure entirely and understates the true standard
+# error, which was silently overstating this table's significance.
+model_activation <- feols(activated ~ shock | Vessel.ADFG.Number + fishery.year, data = activation_data,
+                           cluster = ~Vessel.ADFG.Number)
 
 etable(
   model_activation,
@@ -356,10 +374,11 @@ activation_data_placebo <- activation_data %>%
 
 cat("Placebo regression sample (current and future shock both available):", nrow(activation_data_placebo), "\n")
 
+# cluster = ~Vessel.ADFG.Number on both, same reasoning as Table 10 above.
 model_activation_placebo_sample <- feols(activated ~ shock | Vessel.ADFG.Number + fishery.year,
-                                          data = activation_data_placebo)
+                                          data = activation_data_placebo, cluster = ~Vessel.ADFG.Number)
 model_placebo_joint <- feols(activated ~ shock + shock.future | Vessel.ADFG.Number + fishery.year,
-                              data = activation_data_placebo)
+                              data = activation_data_placebo, cluster = ~Vessel.ADFG.Number)
 
 etable(
   model_activation_placebo_sample, model_placebo_joint,
@@ -392,7 +411,7 @@ cat("Event-study sample (lagged, current, and future shock all available):", nro
 
 if (nrow(activation_data_event) > 0) {
   model_event_study <- feols(activated ~ shock.lag + shock + shock.future | Vessel.ADFG.Number + fishery.year,
-                              data = activation_data_event)
+                              data = activation_data_event, cluster = ~Vessel.ADFG.Number)
   print(etable(model_event_study, headers = "Leads/lags (supplementary)"))
 }
 
