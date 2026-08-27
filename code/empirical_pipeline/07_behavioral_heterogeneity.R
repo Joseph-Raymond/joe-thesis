@@ -273,15 +273,69 @@ cat("Vessel-years where 01_build_panel.R counts the vessel as a lifetime single-
 # divergence between the two scripts' independently duplicated Section 2
 # cleaning steps would be the next thing to check).
 if (nrow(specialist_switching) > 0) {
-  print(
-    specialist_switching %>%
-      left_join(vessel_year %>% select(Vessel.ADFG.Number, Batch.Year, vessel.year.rev),
-                by = c("Vessel.ADFG.Number", "Batch.Year")) %>%
-      select(Vessel.ADFG.Number, Batch.Year, weekly.switching, n.active.weeks, vessel.year.rev) %>%
-      arrange(desc(weekly.switching)) %>%
-      head(10)
-  )
+  specialist_switching_rev <- specialist_switching %>%
+    left_join(vessel_year %>% select(Vessel.ADFG.Number, Batch.Year, vessel.year.rev),
+              by = c("Vessel.ADFG.Number", "Batch.Year")) %>%
+    select(Vessel.ADFG.Number, Batch.Year, weekly.switching, n.active.weeks, vessel.year.rev)
+
+  # Summary first, over all flagged vessel-years, not just the 10 printed
+  # below, share with vessel.year.rev <= 0 is the direct test of the
+  # whole-year-nets-to-zero hypothesis above.
+  cat("Of those", nrow(specialist_switching_rev), "flagged vessel-years, share with",
+      "vessel.year.rev <= 0 that year:",
+      round(mean(specialist_switching_rev$vessel.year.rev <= 0), 4), "\n")
+
+  # as.data.frame() so the console print does not truncate columns to fit
+  # width, a tibble print silently dropped vessel.year.rev off the right
+  # edge on the last run, the one column this diagnostic exists to show.
+  print(as.data.frame(specialist_switching_rev %>% arrange(desc(weekly.switching)) %>% head(10)))
 }
+
+# ----------------------------------------------------------------------
+# Diagnostic, refined. vessel.year.rev above is the vessel's TOTAL revenue
+# across every fishery that year, and it came back clearly positive for
+# every flagged vessel-year (checked directly against the printed sample,
+# $2,008 to $77,884), ruling out the whole-year-nets-to-zero hypothesis.
+# The right test needs the SPECIFIC extra fishery's OWN revenue in THAT
+# flagged year, not the vessel-year total, the original per-fishery
+# hypothesis (01_'s fished = revenue > 0 gate) but scoped down to the
+# vessel-years that actually produced switching, rather than the
+# fleet-wide, all-years-pooled scope the first diagnostic used, which is
+# what surfaced 13 unrelated, switching-inert vessels instead of these.
+# ----------------------------------------------------------------------
+
+if (!exists("vessel_fisheries_06")) load(within_season_path)
+
+extra_fishery_by_vessel <- specialist_switching %>%
+  distinct(Vessel.ADFG.Number) %>%
+  left_join(vessel_mean_share %>% group_by(Vessel.ADFG.Number) %>% summarise(fisheries.01 = list(Fishery), .groups = "drop"),
+            by = "Vessel.ADFG.Number") %>%
+  left_join(vessel_fisheries_06 %>% group_by(Vessel.ADFG.Number) %>% summarise(fisheries.06 = list(Fishery), .groups = "drop"),
+            by = "Vessel.ADFG.Number") %>%
+  mutate(extra.fishery = map2(fisheries.06, fisheries.01, setdiff)) %>%
+  select(Vessel.ADFG.Number, extra.fishery) %>%
+  unnest(extra.fishery)
+
+# Left-joined per flagged (vessel, year), not per vessel, since a vessel
+# can have more than one candidate extra fishery across its whole panel
+# but only one is necessarily the one active in a given flagged year.
+# !is.na(fished) after the join keeps only the extra fishery actually
+# held/fished (per 01_'s reckoning) THAT specific year, dropping
+# candidates irrelevant to that particular flagged vessel-year.
+extra_fishery_year_revenue <- specialist_switching %>%
+  distinct(Vessel.ADFG.Number, Batch.Year) %>%
+  inner_join(extra_fishery_by_vessel, by = "Vessel.ADFG.Number") %>%
+  left_join(
+    vessel_fishery_year %>% select(Vessel.ADFG.Number, Batch.Year, Fishery, revenue, held, fished),
+    by = c("Vessel.ADFG.Number", "Batch.Year", "extra.fishery" = "Fishery")
+  ) %>%
+  filter(!is.na(fished))
+
+cat("Of", nrow(extra_fishery_year_revenue), "flagged (vessel, year, extra fishery) rows, share",
+    "with that SPECIFIC fishery's revenue <= 0 in that SPECIFIC year:",
+    round(mean(extra_fishery_year_revenue$revenue <= 0), 4), "\n")
+
+print(as.data.frame(extra_fishery_year_revenue %>% arrange(Vessel.ADFG.Number, Batch.Year) %>% head(15)))
 
 # ----------------------------------------------------------------------
 # Robustness. Same normalized-classifier structure as the full-sample
