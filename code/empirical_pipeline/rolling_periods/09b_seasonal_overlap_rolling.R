@@ -34,6 +34,11 @@
 source("code/empirical_pipeline/00_setup.R")
 source("code/empirical_pipeline/rolling_periods/00b_rolling_periods.R")
 
+# MAX_YEAR is computed by 01_build_panel.R and saved into panel_path, not a
+# 00_setup.R constant, same reload baseline 09_ and rolling 08b_ both already
+# do before touching catch_data_temp.
+if (!exists("MAX_YEAR")) load(panel_path)
+
 rolling_activation_path <- file.path(intermediate_dir, "ch3_rolling_activation.rdata")
 if (!exists("activation_data.rolling")) load(rolling_activation_path)
 
