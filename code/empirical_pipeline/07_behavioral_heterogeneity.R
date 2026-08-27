@@ -231,68 +231,56 @@ ggsave(file.path(figure_dir, "diagnostic_hbar_by_turnover_type.png"),
 cat("Wrote diagnostic_hbar_by_turnover_type.png\n")
 
 # ----------------------------------------------------------------------
-# Diagnostic. Cross-checks n.fisheries.fished (01_build_panel.R's fishery
-# count, gated on vessel_fishery_year$fished, an ANNUAL revenue > 0 test,
-# see 01_build_panel.R Section 4) against an independent count built off
-# THIS script's own within-season reload (vessel_fisheries_06, gated on
-# MIN_LANDINGS = 1 ticket rows fleet-wide, no revenue threshold at all).
-# Motivated by finding vessels classified High turnover despite counting
-# as a single-fishery specialist, which should be structurally impossible,
-# a vessel that only ever fished one fishery has zero within-season
-# switching in every year by construction, so a positive switching measure
-# is direct evidence 06_'s reload saw a second fishery 01_'s did not. The
-# two counts should agree and mostly do, but a fishery whose ANNUAL
-# revenue total nets to zero or negative (a correction/refund ticket
-# offsetting a real landing, for instance) reads as never-fished to 01_'s
-# annual gate even if some of its WEEKS had genuine positive revenue,
-# which is enough on its own to register real switching here. Diagnostic
-# only, prints to console, writes nothing, does not feed any table.
+# Diagnostic. A first pass at this (comparing n.fisheries.fished against a
+# raw distinct-Fishery count off 06_'s own reload, vessel_fisheries_06)
+# found 13 vessels where the counts disagreed, but every one turned out to
+# be a $0-value ticket (revenue == 0, fished == FALSE in
+# vessel_fishery_year for the "extra" fishery in every row), not a real
+# second fishery. A $0-revenue fishery is share-INERT, share = revenue /
+# week.revenue = 0 / anything = 0 in every week it appears, so it cannot
+# move weekly.switching no matter how many weeks it shows up in. That
+# raw-count comparison was answering an adjacent question (does
+# n.fisheries.fished undercount vessels with $0-value/bycatch-style
+# tickets, yes, confirms the concern raised earlier about season_windows)
+# rather than the one that actually motivated it. The direct test is
+# whether a TRUE specialist's own switching measure, already computed,
+# already share-based, is ever actually positive.
 # ----------------------------------------------------------------------
 
-if (!exists("vessel_mean_share") || !exists("vessel_fishery_year")) load(panel_path)
-if (!exists("vessel_fisheries_06")) load(within_season_path)
+if (!exists("vessel_mean_share") || !exists("vessel_year")) load(panel_path)
 
 n_fisheries_fished <- vessel_mean_share %>%
   count(Vessel.ADFG.Number, name = "n.fisheries.fished")
 
-n_fisheries_06 <- vessel_fisheries_06 %>%
-  count(Vessel.ADFG.Number, name = "n.fisheries.06")
+specialist_switching <- n_fisheries_fished %>%
+  filter(n.fisheries.fished == 1) %>%
+  inner_join(switching_by_vessel_year, by = "Vessel.ADFG.Number") %>%
+  filter(weekly.switching > 0)
 
-fishery_count_compare <- n_fisheries_fished %>%
-  full_join(n_fisheries_06, by = "Vessel.ADFG.Number") %>%
-  mutate(across(starts_with("n.fisheries"), ~ replace_na(., 0)))
+cat("Vessel-years where 01_build_panel.R counts the vessel as a lifetime single-fishery",
+    "specialist but 06_'s own switching measure is positive that year:", nrow(specialist_switching),
+    " across", n_distinct(specialist_switching$Vessel.ADFG.Number), "distinct vessels\n")
 
-n_mismatch_specialist <- fishery_count_compare %>% filter(n.fisheries.fished == 1, n.fisheries.06 > 1)
-
-cat("Vessels where 01_build_panel.R counts exactly 1 ever-fished fishery but",
-    "06_within_season_reallocation.R's own reload counts more:", nrow(n_mismatch_specialist),
-    " of", nrow(fishery_count_compare), "vessels total\n")
-
-# For a handful of these, pull the SPECIFIC extra fishery(ies) 06_ sees that
-# 01_ does not, and that fishery's full per-year revenue/fished history from
-# vessel_fishery_year, to check directly whether the annual-revenue-nets-
-# to-zero-or-negative hypothesis above is actually what is happening, or
-# whether it is something else entirely (a vessel ID cleaning divergence,
-# a year-range mismatch, etc).
-sample_mismatch_vessels <- head(n_mismatch_specialist$Vessel.ADFG.Number, 10)
-
-for (v in sample_mismatch_vessels) {
-  fisheries_01 <- vessel_mean_share %>% filter(Vessel.ADFG.Number == v) %>% pull(Fishery)
-  fisheries_06 <- vessel_fisheries_06 %>% filter(Vessel.ADFG.Number == v) %>% pull(Fishery)
-  extra_fisheries <- setdiff(fisheries_06, fisheries_01)
-
-  cat("\nVessel", v, ", 01_ fisheries:", paste(fisheries_01, collapse = ", "),
-      " 06_ fisheries:", paste(fisheries_06, collapse = ", "),
-      " extra (06_ only):", paste(extra_fisheries, collapse = ", "), "\n")
-
-  if (length(extra_fisheries) > 0) {
-    print(
-      vessel_fishery_year %>%
-        filter(Vessel.ADFG.Number == v, Fishery %in% extra_fisheries) %>%
-        select(Batch.Year, Fishery, revenue, held, fished) %>%
-        arrange(Fishery, Batch.Year)
-    )
-  }
+# For each flagged vessel-year, pull that SAME vessel-year's total revenue
+# across every fishery from vessel_year (01_build_panel.R's object). If it
+# nets to <= 0 that year, active_vessel_years (vessel_year.rev > 0) drops
+# the WHOLE YEAR from vessel_share_panel before n.fisheries.fished is ever
+# computed, so a fishery with genuine per-week positive revenue that year
+# would never register with 01_ even though it is real activity, a
+# different, whole-year version of the same annual-netting problem rather
+# than a per-fishery one. If vessel.year.rev is clearly positive instead,
+# this points at something else, worth chasing next (vessel ID cleaning
+# divergence between the two scripts' independently duplicated Section 2
+# cleaning steps would be the next thing to check).
+if (nrow(specialist_switching) > 0) {
+  print(
+    specialist_switching %>%
+      left_join(vessel_year %>% select(Vessel.ADFG.Number, Batch.Year, vessel.year.rev),
+                by = c("Vessel.ADFG.Number", "Batch.Year")) %>%
+      select(Vessel.ADFG.Number, Batch.Year, weekly.switching, n.active.weeks, vessel.year.rev) %>%
+      arrange(desc(weekly.switching)) %>%
+      head(10)
+  )
 }
 
 # ----------------------------------------------------------------------
