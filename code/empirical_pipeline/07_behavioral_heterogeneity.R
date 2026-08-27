@@ -561,6 +561,64 @@ cat("Robustness, MIN_SECOND_HALF_YEARS =", MIN_SECOND_HALF_YEARS_STRICT, "instea
     " (floor =", MIN_SECOND_HALF_YEARS, "gave Low:", round(coef(model_split_low)["H_bar"], 4),
     " High:", round(coef(model_split_high)["H_bar"], 4), ")\n")
 
+# ----------------------------------------------------------------------
+# Robustness, multi-fishery. Mirrors Table 7's normalized-classifier,
+# specialist-excluded (H_bar = 1) treatment, now designated the headline
+# spec for that table, see the same reasoning here: n.fisheries.fished ==
+# 1 specialists have zero within-vessel H_bar variance for the second-half
+# slope to be estimated from, and n_fisheries_fished was already built
+# above for the Table 7 diagnostics, reused here rather than recomputed.
+# Uses the per-transition-normalized first-half switching measure, not the
+# raw sum used by table8_data/table8_data_strict above, for consistency
+# with what Table 7's own headline spec now classifies on, mean(weekly.
+# switching) alone is mechanically larger for a vessel active more weeks,
+# see the comment above weekly.switching.per.transition in
+# 06_within_season_reallocation.R. Kept at the standard MIN_SECOND_HALF_
+# YEARS floor (3), not the stricter one, stacking both restrictions would
+# shrink an already-smaller multi-fishery sample further without a
+# distinct methodological reason to. Same simpler two-column, no-FE, no-
+# interaction structure as table8_data above, Table 8 has never carried
+# FE/interaction columns the way Table 7 does.
+# ----------------------------------------------------------------------
+
+vessel_switching_normalized_first_half <- switching_by_vessel_year %>%
+  semi_join(first_half_years, by = c("Vessel.ADFG.Number", "Batch.Year")) %>%
+  group_by(Vessel.ADFG.Number) %>%
+  summarise(within.season.switching.norm.first.half = mean(weekly.switching.per.transition), .groups = "drop")
+
+table8_data_multi <- vessel_summary_second_half %>%
+  filter(n.years.second.half >= MIN_SECOND_HALF_YEARS, is.finite(rev.cv), rev.cv > 0) %>%
+  left_join(n_fisheries_fished, by = "Vessel.ADFG.Number") %>%
+  filter(n.fisheries.fished > 1) %>%
+  inner_join(vessel_switching_normalized_first_half, by = "Vessel.ADFG.Number") %>%
+  mutate(vessel.type = if_else(
+    within.season.switching.norm.first.half > median(within.season.switching.norm.first.half),
+    "High turnover", "Low turnover"
+  ))
+
+cat("Table 8 (normalized, multi-fishery), median split on the eligible sample:", nrow(table8_data_multi),
+    " High turnover:", sum(table8_data_multi$vessel.type == "High turnover"), "\n")
+
+model_split_low_multi  <- feols(log(rev.cv) ~ H_bar, data = filter(table8_data_multi, vessel.type == "Low turnover"), vcov = "hetero")
+model_split_high_multi <- feols(log(rev.cv) ~ H_bar, data = filter(table8_data_multi, vessel.type == "High turnover"), vcov = "hetero")
+
+cat("Multi-fishery slope, Low turnover:", round(coef(model_split_low_multi)["H_bar"], 4),
+    " High turnover:", round(coef(model_split_high_multi)["H_bar"], 4),
+    " (full-sample raw-classifier version gave Low:", round(coef(model_split_low)["H_bar"], 4),
+    " High:", round(coef(model_split_high)["H_bar"], 4), ")\n")
+
+etable(
+  model_split_low_multi, model_split_high_multi,
+  headers = c("Low turnover (classified on 1st half)", "High turnover (classified on 1st half)"),
+  tex = TRUE,
+  file = file.path(table_dir, "table8_split_sample_slope_by_type_normalized_multifishery.tex"),
+  replace = TRUE
+)
+
+print(etable(model_split_low_multi, model_split_high_multi))
+
+cat("Wrote table8_split_sample_slope_by_type_normalized_multifishery.tex\n")
+
 # ============================================================================
 # 4. Figure 8. Empirical slopes next to Chapter 2's simulated slopes
 # ============================================================================
@@ -578,26 +636,33 @@ chapter2_slopes <- tibble(
 )
 
 empirical_slopes <- bind_rows(
-  tibble(spec = "Table 7 (full panel)",   vessel.type = "Low turnover",
-         slope = coef(model_low_raw)["H_bar"],   se = se(model_low_raw)["H_bar"]),
-  tibble(spec = "Table 7 (full panel)",   vessel.type = "High turnover",
-         slope = coef(model_high_raw)["H_bar"],  se = se(model_high_raw)["H_bar"]),
+  tibble(spec = "Table 7 (multi-fishery)",   vessel.type = "Low turnover",
+         slope = coef(model_low_raw_norm_multi)["H_bar"],   se = se(model_low_raw_norm_multi)["H_bar"]),
+  tibble(spec = "Table 7 (multi-fishery)",   vessel.type = "High turnover",
+         slope = coef(model_high_raw_norm_multi)["H_bar"],  se = se(model_high_raw_norm_multi)["H_bar"]),
   tibble(spec = "Table 8 (split-sample)", vessel.type = "Low turnover",
-         slope = coef(model_split_low)["H_bar"],  se = se(model_split_low)["H_bar"]),
+         slope = coef(model_split_low_multi)["H_bar"],  se = se(model_split_low_multi)["H_bar"]),
   tibble(spec = "Table 8 (split-sample)", vessel.type = "High turnover",
-         slope = coef(model_split_high)["H_bar"], se = se(model_split_high)["H_bar"])
+         slope = coef(model_split_high_multi)["H_bar"], se = se(model_split_high_multi)["H_bar"])
 )
 
+# Plots the multi-fishery, specialist-excluded, normalized-classifier
+# models now, the headline spec for both tables (see the "Robustness,
+# multi-fishery" sections above), not the original full-sample raw-
+# classifier models, model_low_raw/model_high_raw/model_split_low/
+# model_split_high, those remain available above as the full-sample
+# robustness comparison but are no longer what this figure plots.
+#
 # Chapter 2's dashed reference lines are shown for context, not as a level
-# Figure 8's points are expected to land on. The empirical H_bar comes from
-# a fleet with dozens of fisheries and a mass of near-specialist vessels at
-# H_bar close to 1, nothing like the simulated 3-fishery grid those slopes
-# were estimated on, so the raw slope magnitude is not on the same footing
-# even though the log(CV) ~ H_bar functional form matches. What IS
-# comparable, and what Chapter 2 actually predicts, is the ORDERING, High
-# turnover should sit above Low turnover, the same direction Flex sits
-# above BH. Title/subtitle foreground that rather than numeric proximity to
-# 0.78/0.87 specifically.
+# Figure 8's points are expected to land on. Even with H_bar = 1
+# specialists excluded here, the empirical H_bar still comes from a fleet
+# with dozens of fisheries, nothing like the simulated 3-fishery grid
+# those slopes were estimated on, so the raw slope magnitude is not on the
+# same footing even though the log(CV) ~ H_bar functional form matches.
+# What IS comparable, and what Chapter 2 actually predicts, is the
+# ORDERING, High turnover should sit above Low turnover, the same
+# direction Flex sits above BH. Title/subtitle foreground that rather than
+# numeric proximity to 0.78/0.87 specifically.
 figure8 <- empirical_slopes %>%
   ggplot(aes(x = spec, y = slope, color = vessel.type)) +
   geom_hline(data = chapter2_slopes, aes(yintercept = slope), linetype = "dashed", color = "gray60") +
