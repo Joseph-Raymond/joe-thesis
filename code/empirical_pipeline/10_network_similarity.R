@@ -543,4 +543,142 @@ model_table12_refit <- feols(activated ~ shock * overlap.with.primary | Vessel.A
 cat("Section 5.3, printed-only Table 12 spec refit on its own original sample, for reference\n")
 print(etable(model_table12_refit, headers = "Table 12 spec, original sample (printed only)"))
 
+# ============================================================================
+# 5.4-5.7. Diagnostics for the shock x net.sim.z sign miss and the column 3
+# collinearity claim, added after a deep review of the first real run of
+# this script. Section 4.4 predicted shock x net.sim.z NEGATIVE, on the
+# theory that a vessel already rigged and permitted for a similar
+# alternative should find it CHEAPER to switch into on a bad primary year.
+# The real coefficient came back POSITIVE (0.0091* alone, col 2 above), the
+# opposite sign. None of what follows is written as a table, this is
+# entirely about deciding whether that miss needs an economic story or not
+# before any of it goes in the writeup.
+# ============================================================================
+
+# 5.4. Decisive test. net.sim.z is co.vessels / (n.vessels.A + n.vessels.B -
+# co.vessels), so holding co.vessels fixed, similarity is mechanically
+# LARGER when the primary fishery (n.vessels.B here, since primary.fishery
+# is joined as Fishery.B throughout this script) has fewer ever-holders.
+# The activation shock is a leave-one-out mean standardized against that
+# SAME primary fishery's own multi-year series
+# (08_state_contingent_activation.R, vessel_year_shock), and its sampling
+# noise scales roughly as 1/n.remaining.vessels, so the shock is a noisier
+# measure of the true state exactly where similarity is high. Classical
+# measurement error attenuates a slope toward zero, and attenuation
+# concentrated at high similarity is arithmetically indistinguishable from a
+# positive shock x similarity interaction with no behavioral content at
+# all. n.remaining.vessels survives 08_state_contingent_activation.R's own
+# joins into activation_data and from there into activation_net, checked
+# directly below rather than assumed.
+if (!("n.remaining.vessels" %in% names(activation_net))) {
+  stop("n.remaining.vessels is not present on activation_net, the Section 5.4 size-control ",
+       "diagnostic cannot run. Check whether 08_state_contingent_activation.R's join at its ",
+       "line ~241 (left_join(vessel_year_shock %>% select(-primary.fishery), ...)) still carries ",
+       "this column through to the saved activation_data.")
+}
+
+cat("Vessel-fishery-years with a usable n.remaining.vessels on activation_net:",
+    sum(is.finite(activation_net$n.remaining.vessels) & activation_net$n.remaining.vessels > 0),
+    "of", nrow(activation_net), "\n")
+
+model_size_control <- feols(
+  activated ~ (shock * net.sim.z) + shock:log(n.remaining.vessels) + log(n.remaining.vessels) |
+    Vessel.ADFG.Number + fishery.year,
+  data = activation_net, cluster = ~Vessel.ADFG.Number
+)
+
+cat("Section 5.4, printed-only decisive test, shock x net.sim.z with a shock-precision control\n")
+print(etable(model_size_control, headers = "Both plus shock-precision control (printed only)"))
+
+coef_size_control <- coef(model_size_control)
+cat("  shock x net.sim.z, WITHOUT size control (col 3 above):", round(coef3[["shock:net.sim.z"]], 4), "\n")
+cat("  shock x net.sim.z, WITH size control:", round(coef_size_control[["shock:net.sim.z"]], 4), "\n")
+if (abs(coef_size_control[["shock:net.sim.z"]]) < abs(coef3[["shock:net.sim.z"]]) * 0.5) {
+  cat("  Interaction shrinks by more than half once shock precision is controlled for,",
+      "consistent with the sign miss being a measurement artifact rather than a real effect,",
+      "no economic story needed for this coefficient\n")
+} else {
+  cat("  Interaction does NOT shrink materially once shock precision is controlled for,",
+      "the measurement-artifact explanation is not supported on its own and the sign miss",
+      "needs an actual economic account before it goes in the writeup\n")
+}
+
+# 5.5. The collinearity check COLLINEARITY_FLAG_THRESHOLD was actually meant
+# to guard. Section 3 above computed cor() on the RAW regressors, but
+# column 3's partial coefficients are only threatened by whatever
+# collinearity is LEFT after the two-way fixed effects absorb their share,
+# not by the raw correlation. Residualizing both regressors on the same
+# Vessel.ADFG.Number + fishery.year structure the real model uses, then
+# correlating the residuals, is the actual test the threshold was written
+# for.
+resid_overlap_net <- resid(feols(overlap.with.primary ~ 1 | Vessel.ADFG.Number + fishery.year,
+                                  data = activation_net))
+resid_netsimz_net <- resid(feols(net.sim.z ~ 1 | Vessel.ADFG.Number + fishery.year,
+                                  data = activation_net))
+cor_resid_net <- cor(resid_overlap_net, resid_netsimz_net)
+
+cat("Section 5.5, FE-residualized correlation between overlap.with.primary and net.sim.z\n")
+cat("  Raw correlation on activation_net (Section 3 above):", round(cor_estimation_sample, 4), "\n")
+cat("  FE-residualized correlation (what the collinearity flag is actually meant to guard):",
+    round(cor_resid_net, 4), "\n")
+if (abs(cor_resid_net) > COLLINEARITY_FLAG_THRESHOLD) {
+  cat("  Collinearity flag TRIGGERED on the RESIDUALIZED correlation even though the raw",
+      "correlation looked safe, column 3's partial coefficients are fragile, read columns 1",
+      "and 2 side by side instead of column 3's partial effects\n")
+} else {
+  cat("  Below the collinearity flag even net of the fixed effects, column 3's partial",
+      "coefficients are safe to read as a real decomposition\n")
+}
+
+# 5.6. Quartile-binned version of shock x net.similarity, printed only. The
+# linear interaction is fit on a regressor whose top 1 percent holds over
+# 15 percent of its own total mass (the NOTE printed in Section 3 above), so
+# a single linear coefficient there is closer to a leverage estimate off a
+# handful of pairs than an average effect across the distribution. i(),
+# not factor()*shock, so each quartile's own shock slope is reported
+# directly rather than as an interaction contrast requiring hand
+# arithmetic to unwind. ref = 1 (the lowest-similarity quartile) so the
+# other three coefficients read as "how different is this quartile's shock
+# slope from the lowest-similarity quartile's."
+activation_net <- activation_net %>%
+  mutate(net.sim.quartile = ntile(net.similarity, 4))
+
+model_net_sim_binned <- feols(
+  activated ~ i(net.sim.quartile, shock, ref = 1) | Vessel.ADFG.Number + fishery.year,
+  data = activation_net, cluster = ~Vessel.ADFG.Number
+)
+
+cat("Section 5.6, printed-only quartile-binned shock x net.similarity",
+    "(coefficients are shock-slope DIFFERENCES from the lowest-similarity quartile)\n")
+print(etable(model_net_sim_binned, headers = "Shock slope by net.similarity quartile (printed only)"))
+cat("  net.similarity quartile boundaries\n")
+print(quantile(activation_net$net.similarity, probs = c(0, .25, .5, .75, 1)))
+cat("  If the quartile-4-vs-1 coefficient is much larger than quartile-2-vs-1 and",
+    "quartile-3-vs-1, the linear interaction above is being driven by the top bin",
+    "rather than describing a graded relationship\n")
+
+# 5.7. Top-1-percent-trimmed refit, the direct complement to 5.6. Drops the
+# same observations the Section 3 NOTE flagged as holding a
+# disproportionate share of net.similarity's own mass (net_sim_p99,
+# computed in Section 3), and refits column 3's exact spec on what remains.
+activation_net_trimmed <- activation_net %>% filter(net.similarity < net_sim_p99)
+
+cat("Section 5.7, top-1-percent-trimmed refit, dropped",
+    nrow(activation_net) - nrow(activation_net_trimmed), "of", nrow(activation_net),
+    "observations at or above the 99th percentile of net.similarity\n")
+
+model_trimmed <- feols(
+  activated ~ (shock * overlap.with.primary) + (shock * net.sim.z) | Vessel.ADFG.Number + fishery.year,
+  data = activation_net_trimmed, cluster = ~Vessel.ADFG.Number
+)
+
+cat("Section 5.7, printed-only top-1-percent-trimmed refit of column 3\n")
+print(etable(model_trimmed, headers = "Both, top 1 percent of net.similarity dropped (printed only)"))
+coef_trimmed <- coef(model_trimmed)
+cat("  shock x net.sim.z, full sample (col 3 above):", round(coef3[["shock:net.sim.z"]], 4), "\n")
+cat("  shock x net.sim.z, top-1-percent trimmed:", round(coef_trimmed[["shock:net.sim.z"]], 4), "\n")
+cat("  shock x overlap.with.primary, full sample (col 3 above):", round(coef3[["shock:overlap.with.primary"]], 4), "\n")
+cat("  shock x overlap.with.primary, top-1-percent trimmed:",
+    round(coef_trimmed[["shock:overlap.with.primary"]], 4), "\n")
+
 cat("10_network_similarity.R done\n")
