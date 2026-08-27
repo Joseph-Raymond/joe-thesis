@@ -58,18 +58,21 @@ active_vessel_years <- vessel_year %>%
 # form the R3 classifier") exactly. Median split into two types rather than
 # three, since Chapter 2's comparison benchmark here is the two-way
 # responsive-versus-passive contrast (0.87 versus 0.78), not the three
-# separate BH/QAC/Flex regime slopes individually.
+# separate BH/QAC/Flex regime slopes individually. vessel_switching itself
+# stays UNCLASSIFIED here, the median split is taken below, inside
+# table7_data, after restricting to the vessels actually eligible for the
+# regression, not here over every vessel with a computable switching
+# measure. The full-population median is dragged around by vessels
+# (short panel tenure, near-zero switching) that never enter Table 7
+# either way, so classifying on it does not describe the sample actually
+# being tested, the same mechanism that inverted the multi-fishery
+# robustness table's High/Low ordering below before that fix was applied.
 
 vessel_switching <- switching_by_vessel_year %>%
   group_by(Vessel.ADFG.Number) %>%
   summarise(n.years.switching = n(), within.season.switching = mean(weekly.switching), .groups = "drop")
 
-vessel_type <- vessel_switching %>%
-  mutate(vessel.type = if_else(within.season.switching > median(within.season.switching),
-                                "High turnover", "Low turnover"))
-
-cat("Vessels with a within-season target-switching classifier:", nrow(vessel_type),
-    ", median switching used as the split:", round(median(vessel_switching$within.season.switching), 3), "\n")
+cat("Vessels with a within-season target-switching measure:", nrow(vessel_switching), "\n")
 
 # ============================================================================
 # 2. Table 7. Full-panel slope by type
@@ -77,9 +80,13 @@ cat("Vessels with a within-season target-switching classifier:", nrow(vessel_typ
 
 table7_data <- vessel_summary %>%
   filter(meets.min.years, is.finite(rev.cv), rev.cv > 0) %>%
-  inner_join(vessel_type, by = "Vessel.ADFG.Number")
+  inner_join(vessel_switching, by = "Vessel.ADFG.Number") %>%
+  mutate(vessel.type = if_else(within.season.switching > median(within.season.switching),
+                                "High turnover", "Low turnover"))
 
 cat("Vessels entering Table 7:", nrow(table7_data),
+    ", median switching used as the split (within this eligible sample):",
+    round(median(table7_data$within.season.switching), 3),
     ", High turnover:", sum(table7_data$vessel.type == "High turnover"), "\n")
 
 # No-FE versions are what Figure 8 plots against Chapter 2's unconditional
@@ -138,18 +145,21 @@ cat("Wrote table7_slope_by_turnover_type.tex\n")
 # quotable rather than console-only. This checks the median-split result is
 # not an artifact of raw weekly.switching being mechanically larger for
 # vessels that simply fish more weeks (see the comment above
-# weekly.switching.per.transition in 06_within_season_reallocation.R).
+# weekly.switching.per.transition in 06_within_season_reallocation.R). As
+# with the raw classifier above, vessel_switching_normalized stays
+# UNCLASSIFIED, the median is taken within table7_data_norm's own eligible
+# sample, not beforehand over every vessel with a computable measure.
 # ----------------------------------------------------------------------
 
-vessel_type_normalized <- switching_by_vessel_year %>%
+vessel_switching_normalized <- switching_by_vessel_year %>%
   group_by(Vessel.ADFG.Number) %>%
-  summarise(within.season.switching.norm = mean(weekly.switching.per.transition), .groups = "drop") %>%
-  mutate(vessel.type.norm = if_else(within.season.switching.norm > median(within.season.switching.norm),
-                                     "High turnover", "Low turnover"))
+  summarise(within.season.switching.norm = mean(weekly.switching.per.transition), .groups = "drop")
 
 table7_data_norm <- vessel_summary %>%
   filter(meets.min.years, is.finite(rev.cv), rev.cv > 0) %>%
-  inner_join(vessel_type_normalized, by = "Vessel.ADFG.Number")
+  inner_join(vessel_switching_normalized, by = "Vessel.ADFG.Number") %>%
+  mutate(vessel.type.norm = if_else(within.season.switching.norm > median(within.season.switching.norm),
+                                     "High turnover", "Low turnover"))
 
 model_low_raw_norm  <- feols(log(rev.cv) ~ H_bar, data = filter(table7_data_norm, vessel.type.norm == "Low turnover"), vcov = "hetero")
 model_high_raw_norm <- feols(log(rev.cv) ~ H_bar, data = filter(table7_data_norm, vessel.type.norm == "High turnover"), vcov = "hetero")
@@ -338,6 +348,35 @@ cat("Of", nrow(extra_fishery_year_revenue), "flagged (vessel, year, extra fisher
 print(as.data.frame(extra_fishery_year_revenue %>% arrange(Vessel.ADFG.Number, Batch.Year) %>% head(15)))
 
 # ----------------------------------------------------------------------
+# Diagnostic, final. Only 3 of 168 flagged (vessel, year, extra fishery)
+# rows above even found a matching row in vessel_fishery_year, the other
+# 165 came back NA, meaning 01_build_panel.R's own independent reload of
+# catch_data_temp (fished_vessel_fishery_year, Section 2) produced NO
+# ticket row at all for that vessel-year-fishery, not a $0-value row, no
+# row whatsoever. That rules out a revenue-threshold explanation for the
+# bulk of these and points at an actual difference in which raw tickets
+# the two scripts' independently duplicated Section 2 cleaning code ends
+# up with for the same underlying catch_data_temp.rdata file. The only
+# way to see that directly is an unaggregated, ticket-level look at one
+# specific flagged case, printing every raw row for that exact vessel-year
+# before either script's own cleaning/aggregation touches it.
+# ----------------------------------------------------------------------
+
+check_vessel <- 64147
+check_year   <- 2020
+
+load(file.path(intermediate_dir, "catch_data_temp.rdata"))
+
+raw_check <- catch_data_temp %>%
+  filter(Vessel.ADFG.Number == check_vessel, Batch.Year == check_year) %>%
+  mutate(Fishery = strip_fishery_space(CFEC.Permit.Fishery)) %>%
+  select(Vessel.ADFG.Number, Batch.Year, CFEC.Permit.Fishery, Fishery,
+         CFEC.Value..Detail., Pounds..Detail., Date.Landed)
+
+cat("Raw catch_data_temp ticket rows for vessel", check_vessel, "year", check_year, ":", nrow(raw_check), "\n")
+print(as.data.frame(raw_check))
+
+# ----------------------------------------------------------------------
 # Robustness. Same normalized-classifier structure as the full-sample
 # version above, but the median split itself is now computed WITHIN the
 # eligible sample (meets.min.years, finite positive rev.cv, multi-fishery)
@@ -430,14 +469,16 @@ vessel_year_ordinal <- vessel_share_panel %>%
 first_half_years  <- vessel_year_ordinal %>% filter(half == "first")  %>% select(Vessel.ADFG.Number, Batch.Year)
 second_half_years <- vessel_year_ordinal %>% filter(half == "second") %>% select(Vessel.ADFG.Number, Batch.Year)
 
-vessel_type_first_half <- switching_by_vessel_year %>%
+# Stays UNCLASSIFIED here, same reasoning as Table 7 above, the median
+# split is taken separately below, within EACH of table8_data and
+# table8_data_strict's own eligible sample (they use different
+# n.years.second.half floors, so they are not guaranteed to share a
+# median), not beforehand over every vessel with a computable first-half
+# switching measure regardless of whether it clears either floor.
+vessel_switching_first_half <- switching_by_vessel_year %>%
   semi_join(first_half_years, by = c("Vessel.ADFG.Number", "Batch.Year")) %>%
   group_by(Vessel.ADFG.Number) %>%
-  summarise(within.season.switching.first.half = mean(weekly.switching), .groups = "drop") %>%
-  mutate(vessel.type = if_else(
-    within.season.switching.first.half > median(within.season.switching.first.half),
-    "High turnover", "Low turnover"
-  ))
+  summarise(within.season.switching.first.half = mean(weekly.switching), .groups = "drop")
 
 # MIN_SECOND_HALF_YEARS is deliberately lower than MIN_ACTIVE_YEARS (5), a
 # vessel's second half is roughly half its panel by construction, so a
@@ -464,9 +505,15 @@ vessel_summary_second_half <- vessel_share_panel %>%
 
 table8_data <- vessel_summary_second_half %>%
   filter(n.years.second.half >= MIN_SECOND_HALF_YEARS, is.finite(rev.cv), rev.cv > 0) %>%
-  inner_join(vessel_type_first_half, by = "Vessel.ADFG.Number")
+  inner_join(vessel_switching_first_half, by = "Vessel.ADFG.Number") %>%
+  mutate(vessel.type = if_else(
+    within.season.switching.first.half > median(within.season.switching.first.half),
+    "High turnover", "Low turnover"
+  ))
 
 cat("Vessels entering Table 8:", nrow(table8_data),
+    ", median first-half switching used as the split (within this eligible sample):",
+    round(median(table8_data$within.season.switching.first.half), 3),
     ", High turnover:", sum(table8_data$vessel.type == "High turnover"), "\n")
 
 # vcov = "hetero", not the iid OLS default, for the same reason as Table 7,
@@ -498,7 +545,11 @@ MIN_SECOND_HALF_YEARS_STRICT <- 5
 
 table8_data_strict <- vessel_summary_second_half %>%
   filter(n.years.second.half >= MIN_SECOND_HALF_YEARS_STRICT, is.finite(rev.cv), rev.cv > 0) %>%
-  inner_join(vessel_type_first_half, by = "Vessel.ADFG.Number")
+  inner_join(vessel_switching_first_half, by = "Vessel.ADFG.Number") %>%
+  mutate(vessel.type = if_else(
+    within.season.switching.first.half > median(within.season.switching.first.half),
+    "High turnover", "Low turnover"
+  ))
 
 model_split_low_strict  <- feols(log(rev.cv) ~ H_bar, data = filter(table8_data_strict, vessel.type == "Low turnover"), vcov = "hetero")
 model_split_high_strict <- feols(log(rev.cv) ~ H_bar, data = filter(table8_data_strict, vessel.type == "High turnover"), vcov = "hetero")
