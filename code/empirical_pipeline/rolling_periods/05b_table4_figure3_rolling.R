@@ -79,8 +79,29 @@ m_decomposed_vfe_roll <- feols(rev.cv ~ H_LR + Phi | Vessel.ADFG.Number + window
 # Unweighted vessel-window regressions give a vessel with many eligible
 # windows many times the weight of a vessel with few, this restores the
 # baseline's one-vessel-one-vote estimand as a check, not a replacement.
+#
+# The weight is recomputed HERE, inside vessel_multi.rolling, rather than
+# reusing 01b_'s inv.window.count column directly. 01b_'s inv.window.count
+# is 1 / (ELIGIBLE windows for that vessel, vessel_window_eligibility.rolling),
+# but this regression runs on vessel_multi.rolling, which has already
+# dropped within-window specialists and non-finite rev.cv, so a vessel's
+# inv.window.count values no longer sum to 1 over the rows actually being
+# fit, they sum to (surviving windows) / (eligible windows), a ratio that
+# differs across vessels and is not independent of the regressors (a vessel
+# that specializes more of the time loses more of its windows here, and
+# specialization is exactly what H_LR/Phi measure). n.windows.vessel /
+# inv.window.count from 01b_ are left alone, they still correctly describe
+# eligibility, just should not be reused as a weight for a filtered sample.
+vessel_multi.rolling <- vessel_multi.rolling %>%
+  add_count(Vessel.ADFG.Number, name = "n.windows.vessel.insample") %>%
+  mutate(inv.window.count.insample = 1 / n.windows.vessel.insample)
+
+cat("Eligible vs. in-sample window count per vessel (Table 4-rolling weighted column), ",
+    "share of vessel-windows where these differ:",
+    round(mean(vessel_multi.rolling$n.windows.vessel.insample != vessel_multi.rolling$n.windows.vessel), 4), "\n")
+
 m_decomposed_weighted_roll <- feols(rev.cv ~ H_LR + Phi | prime.fishery.window + window.start,
-                                     data = vessel_multi.rolling, weights = ~inv.window.count,
+                                     data = vessel_multi.rolling, weights = ~inv.window.count.insample,
                                      cluster = ~Vessel.ADFG.Number + window.start)
 
 etable(

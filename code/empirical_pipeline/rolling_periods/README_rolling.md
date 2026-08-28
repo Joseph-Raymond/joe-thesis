@@ -79,11 +79,16 @@ Every rolling regression in this pipeline follows the same three layers:
    rebuilt (not overwritten with a partial version) by every script that
    adds a row to it.
 
-One inverse-window-count weighting robustness column (`weights =
-~inv.window.count`) is added to the Table 4-rolling and Table 7-rolling
-headline models, restoring the baseline's one-vessel-one-vote estimand as a
-check (unweighted vessel-window regressions give a 26-window vessel 26 times
-the weight of a 3-window vessel).
+One inverse-window-count weighting robustness column is added to the Table
+4-rolling headline model only (Table 7-rolling has no weighted column),
+restoring the baseline's one-vessel-one-vote estimand as a check (unweighted
+vessel-window regressions give a 26-window vessel 26 times the weight of a
+3-window vessel). The weight is computed inside `05b_`'s own filtered
+estimation sample (`vessel_multi.rolling`), not reused from `01b_`'s
+`inv.window.count` (which is 1 / ELIGIBLE windows, not 1 / windows actually
+in that regression's sample), a methodological review caught that reusing
+the eligibility-based weight understated a vessel's weight in proportion to
+how often it specialized within a window, correlated with the regressors.
 
 ## Naming convention
 
