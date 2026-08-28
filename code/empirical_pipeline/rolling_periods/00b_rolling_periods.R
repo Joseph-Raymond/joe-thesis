@@ -160,14 +160,51 @@ roll_phase <- function(window_start, min_year, n_phases = ROLL_N_PHASES) {
 # keyed on (model, coefficient) so multiple calls for the same model do not
 # collide.
 #
-# Reading rule (verbatim from design Section 2.3, give this to the reader
-# alongside the printed output): if the six phases were independent samples
-# of size N/6, pooling would give SE_full ~ SE_phase / sqrt(6) ~ 0.41 *
-# SE_phase. Full redundancy would give SE_full ~ SE_phase. The vessel-
-# clustered two-way SE_full should land much closer to SE_phase than to
-# SE_phase / sqrt(6) if the clustering is doing its job. If SE_full comes
-# back near SE_phase / sqrt(6), the rolling panel is manufacturing precision
-# and the phase standard errors are the ones to quote in the writeup.
+# Reading rule for se.ratio, CORRECTED after a methodological review found
+# the original rule (attributed to a "design Section 2.3" that does not
+# actually exist anywhere in this repo, that citation should never have
+# been trusted at face value) was wrong about what a HEALTHY se.ratio looks
+# like. The original claim was full redundancy gives SE_full ~ SE_phase
+# (ratio ~1.0), independent-sample pooling gives SE_full ~ SE_phase/sqrt(6)
+# ~ 0.41. That premise is false. The six phases are non-overlapping in
+# YEARS, so pooling all six into the full panel genuinely adds real
+# information beyond what vessel clustering alone captures inside a single
+# phase, even though most of the SAME vessels appear in every phase, each
+# phase sees a DIFFERENT 6-year window aggregation of that vessel's own
+# data. Simulated directly (a DGP where vessel clustering is exactly
+# sufficient by construction, iid vessel-year data aggregated to 6-year
+# windows, no FE beyond what these models actually use), the correct benign
+# se.ratio came back around 0.7, not 1.0. A ratio near 1.0 is NOT the
+# "everything is fine" case this comment used to claim, and there is no
+# evidence the ~0.41 figure corresponds to anything a real degenerate case
+# would produce, it was never derived from an actual DGP.
+#
+# This gets MORE complicated, not just shifted, for any model using
+# Vessel.ADFG.Number as a fixed effect (every headline model in this folder
+# does). fixest drops fixed-effect singletons before fitting, and a phase's
+# smaller sample loses proportionally MORE of its rows to that drop than
+# the full panel does, a vessel identified by 2-3 windows in the full panel
+# can become a singleton once restricted to one phase's 3-5 windows.
+# Simulated with a realistic short-tenure fleet, a phase slice held ~16.5%
+# of the full panel's raw rows but only ~50% of THOSE survived singleton-
+# dropping, an effective ~8% of the full panel, not the ~16.7% raw row
+# count alone would suggest, and se.ratio for a provably-correct estimator
+# came back at 0.202 in that case, deep in what used to be read as the
+# "manufacturing precision" zone despite nothing being wrong. This bias is
+# invisible from se.ratio and raw row counts alone, which is why n.fit
+# (actual regression N, nobs() after FE-based dropping) is now reported
+# alongside n.obs (raw candidate rows before that dropping) below and in
+# the summary row, compare the two directly for any Vessel.ADFG.Number-FE
+# model before reading se.ratio at face value.
+#
+# Net effect, there is no single se.ratio benchmark that applies uniformly
+# across every model in this pipeline. Read se.ratio as a rough,
+# model-specific screen against ~0.7 (lower still if n.fit/n.obs shows
+# heavy singleton loss), not a fixed constant, and treat
+# flag.outside.phase.range (the point-estimate-outside-phase-range check
+# below) as the harder, ratio-independent signal, its validity does not
+# depend on this calibration question at all.
+#
 # Caveat, the phases share most of the same vessels, so they are not
 # independent even in the vessel dimension, this is a calibration rather
 # than a formal test.
@@ -207,8 +244,10 @@ roll_phase_check <- function(fml, data, coef_name, label,
     m_full <- feols(fml, data = data, cluster = ~Vessel.ADFG.Number, ...)
   }
 
-  est_full <- unname(coef(m_full)[coef_name])
-  se_full  <- unname(se(m_full)[coef_name])
+  est_full   <- unname(coef(m_full)[coef_name])
+  se_full    <- unname(se(m_full)[coef_name])
+  n_obs_full <- nrow(data)
+  n_fit_full <- nobs(m_full)
 
   phase_list <- lapply(0:(n_phases - 1), function(p) {
     data_p <- data %>% filter(roll_phase(window.start, min_year, n_phases) == p)
@@ -217,18 +256,27 @@ roll_phase_check <- function(fml, data, coef_name, label,
       error = function(e) NULL
     )
     if (is.null(m_p) || !(coef_name %in% names(coef(m_p)))) {
-      return(tibble(phase = p, n.obs = nrow(data_p), estimate = NA_real_, se = NA_real_))
+      return(tibble(phase = p, n.obs = nrow(data_p), n.fit = NA_integer_, estimate = NA_real_, se = NA_real_))
     }
-    tibble(phase = p, n.obs = nrow(data_p),
+    tibble(phase = p, n.obs = nrow(data_p), n.fit = nobs(m_p),
            estimate = unname(coef(m_p)[coef_name]), se = unname(se(m_p)[coef_name]))
   })
   phase_tbl <- bind_rows(phase_list)
 
-  se_phase_median <- median(phase_tbl$se, na.rm = TRUE)
-  se_ratio        <- se_full / se_phase_median
-  phase_min       <- min(phase_tbl$estimate, na.rm = TRUE)
-  phase_median    <- median(phase_tbl$estimate, na.rm = TRUE)
-  phase_max       <- max(phase_tbl$estimate, na.rm = TRUE)
+  se_phase_median   <- median(phase_tbl$se, na.rm = TRUE)
+  se_ratio          <- se_full / se_phase_median
+  phase_min         <- min(phase_tbl$estimate, na.rm = TRUE)
+  phase_median      <- median(phase_tbl$estimate, na.rm = TRUE)
+  phase_max         <- max(phase_tbl$estimate, na.rm = TRUE)
+  n_fit_phase_median <- median(phase_tbl$n.fit, na.rm = TRUE)
+  # Retention = n.fit / n.obs, how much of the RAW candidate sample actually
+  # entered the regression after FE-based (mostly Vessel.ADFG.Number)
+  # singleton dropping. A phase retention rate well below the full-panel
+  # rate is exactly the invisible bias the header comment above describes,
+  # printed and carried in $summary rather than left for the reader to
+  # compute by hand.
+  retention_full         <- n_fit_full / n_obs_full
+  retention_phase_median <- n_fit_phase_median / median(phase_tbl$n.obs, na.rm = TRUE)
   out_of_range    <- is.finite(est_full) && is.finite(phase_min) && is.finite(phase_max) &&
     (est_full < phase_min || est_full > phase_max)
 
@@ -236,11 +284,19 @@ roll_phase_check <- function(fml, data, coef_name, label,
   cat("  full-panel estimate:", round(est_full, 4),
       " SE (", if (used_twoway) "two-way vessel+window" else "vessel-only, two-way clustering failed/degenerate",
       "):", round(se_full, 4), "\n")
+  cat("  full-panel N, raw:", n_obs_full, " fit (post FE-dropping):", n_fit_full,
+      " retention:", round(retention_full, 3), "\n")
   cat("  phase estimates, min:", round(phase_min, 4), " median:", round(phase_median, 4),
       " max:", round(phase_max, 4), "\n")
+  cat("  median phase N, fit (post FE-dropping):", round(n_fit_phase_median),
+      " retention:", round(retention_phase_median, 3),
+      if (is.finite(retention_phase_median) && is.finite(retention_full) &&
+          retention_phase_median < 0.7 * retention_full)
+        "  *** phase retention notably below full-panel retention, se.ratio below is likely biased low, see header comment ***"
+      else "", "\n")
   cat("  median phase SE:", round(se_phase_median, 4),
       " SE_full / SE_phase =", round(se_ratio, 3),
-      " (~1.0 = full redundancy, ~0.41 = independent-sample pooling, per the Section 2.3 reading rule)\n")
+      " (rough anchor ~0.7 for a healthy model, no single fixed benchmark applies, see header comment)\n")
   if (out_of_range) {
     cat("  *** WARNING:", label, "(", coef_name, ") full-panel point estimate",
         round(est_full, 4), "falls OUTSIDE the phase min-max range [", round(phase_min, 4), ",",
@@ -254,6 +310,8 @@ roll_phase_check <- function(fml, data, coef_name, label,
       estimate.full = est_full, se.full = se_full, used.twoway.cluster = used_twoway,
       phase.min = phase_min, phase.median = phase_median, phase.max = phase_max,
       se.phase.median = se_phase_median, se.ratio = se_ratio,
+      n.obs.full = n_obs_full, n.fit.full = n_fit_full, retention.full = retention_full,
+      n.fit.phase.median = n_fit_phase_median, retention.phase.median = retention_phase_median,
       flag.outside.phase.range = out_of_range
     ),
     phases = phase_tbl

@@ -69,12 +69,31 @@ Every rolling regression in this pipeline follows the same three layers:
    sample into 6 phases of genuinely non-overlapping windows (phase 0 is
    1991-1996, 1997-2002, ...), refits the identical specification on each,
    and reports the full-panel two-way-clustered estimate against the phase
-   min/median/max. **Reading rule**: if `SE_full` sits near `SE_phase`, the
-   vessel clustering is doing its job, if it sits near `SE_phase / sqrt(6) ~
-   0.41 * SE_phase`, the rolling panel is manufacturing precision and the
-   phase SEs are the ones to trust. If the full-panel point estimate falls
-   outside the phase min-max range, `roll_phase_check()` prints a loud
-   warning, that model needs inspection before it is trusted. All results
+   min/median/max. **Reading rule, corrected by a methodological review**:
+   the original rule here ("`SE_full` near `SE_phase`" = healthy, "`SE_full`
+   near `SE_phase / sqrt(6) ~ 0.41 * SE_phase`" = manufacturing precision)
+   was wrong, that premise assumed full redundancy across phases, but
+   non-overlapping phases genuinely add real information beyond what vessel
+   clustering alone captures, so a healthy `se.ratio` was never going to sit
+   near 1.0. Simulated directly, a healthy ratio for a model without a
+   `Vessel.ADFG.Number` fixed effect comes back around **0.7**, not 1.0, and
+   there is no evidence the 0.41 figure corresponds to any real degenerate
+   case. Worse, every headline model in this folder DOES use
+   `Vessel.ADFG.Number` as a fixed effect, and fixest's singleton-dropping
+   shrinks a phase's effective sample more than its full-panel counterpart
+   (simulated case, a phase held ~16.5% of raw rows but only ~50% of those
+   survived dropping, an effective ~8% rather than ~16.7%, driving a
+   provably-correct estimator's ratio down to 0.202). This bias is invisible
+   from `se.ratio` and raw row counts alone, so `roll_phase_check()` now
+   also reports `n.fit`/`n.obs` (post- vs. pre-singleton-dropping row
+   counts) and a retention rate, both printed and carried into
+   `$summary`/the ledger, compare those before reading `se.ratio` against
+   the ~0.7 anchor. There is no single fixed benchmark that applies
+   uniformly across every model here. Separately, and unaffected by any of
+   this recalibration, if the full-panel point estimate falls outside the
+   phase min-max range, `roll_phase_check()` prints a loud warning, that
+   model needs inspection before it is trusted, that check's validity does
+   not depend on the `se.ratio` calibration question at all. All results
    accumulate into one table, `table_rolling_overlap_robustness.tex`,
    rebuilt (not overwritten with a partial version) by every script that
    adds a row to it.

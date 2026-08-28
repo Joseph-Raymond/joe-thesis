@@ -20,10 +20,11 @@
 # folder, and the phase check calibrates whether that correction is doing
 # its job by comparing the full-panel SE against SEs from genuinely
 # non-overlapping stride-6 phases. See 00b_rolling_periods.R's
-# roll_phase_check() header for the exact reading rule, if SE_full sits
-# near SE_phase the clustering is working, if it sits near
-# SE_phase / sqrt(6) the panel is manufacturing precision and the phase SEs
-# are the ones to trust instead.
+# roll_phase_check() header for the exact reading rule (corrected by a
+# methodological review, the rough healthy anchor is se.ratio ~0.7, not
+# ~1.0, lower still for a Vessel.ADFG.Number-FE model like this one, read
+# against the n.fit/n.obs retention rate printed alongside it, not a fixed
+# constant).
 #
 # NETWORK STAYS ALL-YEARS POOLED, NOT ROLLING, same reasoning
 # 09b_seasonal_overlap_rolling.R gives for keeping seasonal overlap pooled
@@ -337,7 +338,10 @@ if (file.exists(ROLL_PHASE_CHECK_PATH)) {
     model = character(), coefficient = character(), estimate.full = double(),
     se.full = double(), used.twoway.cluster = logical(),
     phase.min = double(), phase.median = double(), phase.max = double(),
-    se.phase.median = double(), se.ratio = double(), flag.outside.phase.range = logical()
+    se.phase.median = double(), se.ratio = double(),
+    n.obs.full = double(), n.fit.full = double(), retention.full = double(),
+    n.fit.phase.median = double(), retention.phase.median = double(),
+    flag.outside.phase.range = logical()
   )
 }
 

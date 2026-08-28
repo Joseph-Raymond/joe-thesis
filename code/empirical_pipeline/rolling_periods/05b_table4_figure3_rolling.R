@@ -353,7 +353,10 @@ if (file.exists(ROLL_PHASE_CHECK_PATH)) {
     model = character(), coefficient = character(), estimate.full = double(),
     se.full = double(), used.twoway.cluster = logical(),
     phase.min = double(), phase.median = double(), phase.max = double(),
-    se.phase.median = double(), se.ratio = double(), flag.outside.phase.range = logical()
+    se.phase.median = double(), se.ratio = double(),
+    n.obs.full = double(), n.fit.full = double(), retention.full = double(),
+    n.fit.phase.median = double(), retention.phase.median = double(),
+    flag.outside.phase.range = logical()
   )
 }
 
