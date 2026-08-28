@@ -243,18 +243,21 @@ if (abs(cor_resid.rolling) > 0.7) {
 
 # ============================================================================
 # 4. Table 13-rolling. Three models, window.start added to the fixed
-#    effects and to clustering, matching 09b_'s Table 12-rolling convention
+#    effects and to clustering. Clustered on ~predetermined.primary.window +
+#    window.start, matching baseline 10_'s ~primary.fishery Moulton-problem
+#    fix and 08b_/09b_'s same fix (see 09b_'s m_table12_roll comment), NOT
+#    ~Vessel.ADFG.Number + window.start.
 # ============================================================================
 
 m_table13_col1_roll <- feols(activated ~ shock * overlap.with.primary |
                                 Vessel.ADFG.Number + fishery.year + window.start,
-                              data = activation_net.rolling, cluster = ~Vessel.ADFG.Number + window.start)
+                              data = activation_net.rolling, cluster = ~predetermined.primary.window + window.start)
 m_table13_col2_roll <- feols(activated ~ shock * net.sim.z |
                                 Vessel.ADFG.Number + fishery.year + window.start,
-                              data = activation_net.rolling, cluster = ~Vessel.ADFG.Number + window.start)
+                              data = activation_net.rolling, cluster = ~predetermined.primary.window + window.start)
 m_table13_col3_roll <- feols(activated ~ (shock * overlap.with.primary) + (shock * net.sim.z) |
                                 Vessel.ADFG.Number + fishery.year + window.start,
-                              data = activation_net.rolling, cluster = ~Vessel.ADFG.Number + window.start)
+                              data = activation_net.rolling, cluster = ~predetermined.primary.window + window.start)
 
 table13_dict_roll <- c(net.sim.z = "Network similarity (z-scored)")
 
@@ -284,16 +287,23 @@ cat("Wrote table13_activation_by_network_similarity_rolling.tex. N:", nrow(activ
 #    header for the exact reading rule.
 # ============================================================================
 
+# cluster= passed explicitly on every call below so the ledger's
+# estimate.full/se.full match the m_table13_col*_roll models above, see
+# 08b_ Section 8's comment on the same point (including the caveat that
+# roll_phase_check()'s own phase-level sub-fits stay hardcoded to
+# ~Vessel.ADFG.Number regardless of this argument).
 pc_overlap_alone <- roll_phase_check(
   fml = activated ~ shock * overlap.with.primary | Vessel.ADFG.Number + fishery.year + window.start,
   data = activation_net.rolling, coef_name = "overlap.with.primary",
-  label = "Table 13-rolling: seasonal overlap alone (col 1)"
+  label = "Table 13-rolling: seasonal overlap alone (col 1)",
+  cluster = ~predetermined.primary.window + window.start
 )
 
 pc_netsim_alone <- roll_phase_check(
   fml = activated ~ shock * net.sim.z | Vessel.ADFG.Number + fishery.year + window.start,
   data = activation_net.rolling, coef_name = "net.sim.z",
-  label = "Table 13-rolling: network similarity alone (col 2)"
+  label = "Table 13-rolling: network similarity alone (col 2)",
+  cluster = ~predetermined.primary.window + window.start
 )
 
 both_fml_roll <- activated ~ (shock * overlap.with.primary) + (shock * net.sim.z) |
@@ -301,19 +311,23 @@ both_fml_roll <- activated ~ (shock * overlap.with.primary) + (shock * net.sim.z
 
 pc_overlap_both <- roll_phase_check(
   fml = both_fml_roll, data = activation_net.rolling, coef_name = "overlap.with.primary",
-  label = "Table 13-rolling: both (col 3)"
+  label = "Table 13-rolling: both (col 3)",
+  cluster = ~predetermined.primary.window + window.start
 )
 pc_netsim_both <- roll_phase_check(
   fml = both_fml_roll, data = activation_net.rolling, coef_name = "net.sim.z",
-  label = "Table 13-rolling: both (col 3)"
+  label = "Table 13-rolling: both (col 3)",
+  cluster = ~predetermined.primary.window + window.start
 )
 pc_overlap_interaction <- roll_phase_check(
   fml = both_fml_roll, data = activation_net.rolling, coef_name = "shock:overlap.with.primary",
-  label = "Table 13-rolling: both (col 3)"
+  label = "Table 13-rolling: both (col 3)",
+  cluster = ~predetermined.primary.window + window.start
 )
 pc_netsim_interaction <- roll_phase_check(
   fml = both_fml_roll, data = activation_net.rolling, coef_name = "shock:net.sim.z",
-  label = "Table 13-rolling: both (col 3)"
+  label = "Table 13-rolling: both (col 3)",
+  cluster = ~predetermined.primary.window + window.start
 )
 
 if (file.exists(ROLL_PHASE_CHECK_PATH)) {

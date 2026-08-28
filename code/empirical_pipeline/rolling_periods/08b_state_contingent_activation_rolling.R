@@ -252,11 +252,23 @@ cat("Mean activation rate:", round(mean(activation_data.rolling$activated), 3), 
 # ============================================================================
 #
 # Design Section 6.3. Each of these twenty fits uses every vessel-year in
-# that window's sample at most once, no duplication problem whatsoever. No
-# cluster argument given, matching baseline 08_'s own convention exactly
-# (fixest's default clusters on the first fixed effect, Vessel.ADFG.Number,
-# which is the appropriate repeated unit here since a vessel can hold
-# several non-primary fisheries within the same outcome window).
+# that window's sample at most once, no duplication problem whatsoever.
+# Explicit cluster = ~predetermined.primary.window below, NOT left to
+# fixest's default (which clusters on the first fixed effect,
+# Vessel.ADFG.Number). This comment previously claimed the opposite, that
+# leaving cluster unset here "matched baseline 08_'s own convention
+# exactly", which was never true, baseline 08_ clusters on ~primary.fishery
+# (its own comment there explains why, the shock is a leave-one-out mean
+# defined at the (primary.fishery, year) level, so vessels sharing a
+# primary in the same year carry nearly identical shock values, and
+# vessel-only clustering does not address that, a Moulton (1990) problem).
+# A methodological review caught both the false claim and the fact that a
+# subsequent diagnostic (diagnostic_rolling_primary_fishery_clustering.R)
+# found real star-pattern flips for the pooled Table 12/13-rolling analogue
+# of this same shock, confirming the same issue reaches rolling too.
+# window.start is not part of the cluster formula here, unlike the pooled
+# models below, each of these twenty fits is already restricted to a single
+# window, there is no window dimension left to cluster on.
 
 outcome_starts_activation <- sort(unique(activation_data.rolling$window.start))
 
@@ -266,7 +278,8 @@ activation_path.rolling <- lapply(outcome_starts_activation, function(s) {
     return(tibble(window.start = s, estimate = NA_real_, se = NA_real_, n = nrow(dat_s)))
   }
   m_s <- tryCatch(
-    feols(activated ~ shock | Vessel.ADFG.Number + fishery.year, data = dat_s),
+    feols(activated ~ shock | Vessel.ADFG.Number + fishery.year, data = dat_s,
+          cluster = ~predetermined.primary.window),
     error = function(e) NULL
   )
   if (is.null(m_s) || !("shock" %in% names(coef(m_s)))) {
@@ -301,8 +314,13 @@ cat("Wrote figure10b_activation_path_rolling.png\n")
 # 6. Table 10-rolling, SECONDARY. Pooled stacked regression
 # ============================================================================
 
+# Clustered on ~predetermined.primary.window + window.start, matching
+# baseline 08_'s ~primary.fishery Moulton-problem fix (see the Section 5
+# comment above), with window.start added since this pooled sample stacks
+# a vessel-year across up to ROLL_WINDOW_WIDTH outcome windows.
 m_activation_roll <- feols(activated ~ shock | Vessel.ADFG.Number + fishery.year + window.start,
-                            data = activation_data.rolling, cluster = ~Vessel.ADFG.Number + window.start)
+                            data = activation_data.rolling,
+                            cluster = ~predetermined.primary.window + window.start)
 
 etable(
   m_activation_roll,
@@ -333,13 +351,15 @@ activation_data_placebo.rolling <- activation_data.rolling %>%
 cat("Placebo regression sample (current and future shock both available, pooled):",
     nrow(activation_data_placebo.rolling), "\n")
 
+# Same clustering fix as Section 6's m_activation_roll above, ~predetermined.
+# primary.window + window.start, not ~Vessel.ADFG.Number + window.start.
 m_activation_placebo_sample_roll <- feols(
   activated ~ shock | Vessel.ADFG.Number + fishery.year + window.start,
-  data = activation_data_placebo.rolling, cluster = ~Vessel.ADFG.Number + window.start
+  data = activation_data_placebo.rolling, cluster = ~predetermined.primary.window + window.start
 )
 m_placebo_joint_roll <- feols(
   activated ~ shock + shock.future | Vessel.ADFG.Number + fishery.year + window.start,
-  data = activation_data_placebo.rolling, cluster = ~Vessel.ADFG.Number + window.start
+  data = activation_data_placebo.rolling, cluster = ~predetermined.primary.window + window.start
 )
 
 etable(
@@ -358,9 +378,18 @@ cat("Wrote table11_placebo_future_shock_rolling.tex\n")
 # 8. Mandatory stride-6 phase check (design Section 2.2, Layer 3)
 # ============================================================================
 
+# cluster= passed explicitly so the ledger's estimate.full/se.full match
+# what m_activation_roll above actually reports (~predetermined.primary.window
+# + window.start), not roll_phase_check()'s own ~Vessel.ADFG.Number +
+# window.start default. The phase-level sub-fits inside roll_phase_check()
+# itself are still hardcoded to ~Vessel.ADFG.Number regardless of this
+# argument, a separate, already-flagged limitation (not fixed here, out of
+# scope for this clustering change) that means se.phase.median/se.ratio
+# below are not on the identical clustering convention as se.full is.
 pc_activation <- roll_phase_check(
   fml = activated ~ shock | Vessel.ADFG.Number + fishery.year + window.start,
-  data = activation_data.rolling, coef_name = "shock", label = "Table 10-rolling: pooled activation"
+  data = activation_data.rolling, coef_name = "shock", label = "Table 10-rolling: pooled activation",
+  cluster = ~predetermined.primary.window + window.start
 )
 
 if (file.exists(ROLL_PHASE_CHECK_PATH)) {

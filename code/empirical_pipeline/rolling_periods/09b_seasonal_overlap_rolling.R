@@ -146,9 +146,16 @@ activation_data_overlap.rolling <- activation_data.rolling %>%
 cat("Table 12-rolling sample (activation candidates with a computable overlap to that window's",
     "predetermined primary):", nrow(activation_data_overlap.rolling), "of", nrow(activation_data.rolling), "\n")
 
+# Clustered on ~predetermined.primary.window + window.start, matching
+# baseline 09_'s ~primary.fishery Moulton-problem fix and 08b_'s Section 6
+# comment above it, not ~Vessel.ADFG.Number + window.start.
+# diagnostic_rolling_primary_fishery_clustering.R found this specific
+# model's shock main effect loses its (marginal) significance and
+# overlap.with.primary downgrades a tier under the corrected clustering,
+# a real, not cosmetic, difference.
 m_table12_roll <- feols(
   activated ~ shock * overlap.with.primary | Vessel.ADFG.Number + fishery.year + window.start,
-  data = activation_data_overlap.rolling, cluster = ~Vessel.ADFG.Number + window.start
+  data = activation_data_overlap.rolling, cluster = ~predetermined.primary.window + window.start
 )
 
 etable(
@@ -179,20 +186,27 @@ cat("Wrote table12_activation_by_seasonal_overlap_rolling.tex. N:", nrow(activat
 #    it.
 # ============================================================================
 
+# cluster= passed explicitly so the ledger's estimate.full/se.full match
+# m_table12_roll above, see 08b_ Section 8's comment on the same point
+# (including the caveat that roll_phase_check()'s own phase-level sub-fits
+# stay hardcoded to ~Vessel.ADFG.Number regardless of this argument).
 pc_shock <- roll_phase_check(
   fml = activated ~ shock * overlap.with.primary | Vessel.ADFG.Number + fishery.year + window.start,
   data = activation_data_overlap.rolling, coef_name = "shock",
-  label = "Table 12-rolling: pooled overlap interaction"
+  label = "Table 12-rolling: pooled overlap interaction",
+  cluster = ~predetermined.primary.window + window.start
 )
 pc_overlap_main <- roll_phase_check(
   fml = activated ~ shock * overlap.with.primary | Vessel.ADFG.Number + fishery.year + window.start,
   data = activation_data_overlap.rolling, coef_name = "overlap.with.primary",
-  label = "Table 12-rolling: pooled overlap interaction"
+  label = "Table 12-rolling: pooled overlap interaction",
+  cluster = ~predetermined.primary.window + window.start
 )
 pc_overlap_interaction <- roll_phase_check(
   fml = activated ~ shock * overlap.with.primary | Vessel.ADFG.Number + fishery.year + window.start,
   data = activation_data_overlap.rolling, coef_name = "shock:overlap.with.primary",
-  label = "Table 12-rolling: pooled overlap interaction"
+  label = "Table 12-rolling: pooled overlap interaction",
+  cluster = ~predetermined.primary.window + window.start
 )
 
 if (file.exists(ROLL_PHASE_CHECK_PATH)) {

@@ -79,6 +79,26 @@ Every rolling regression in this pipeline follows the same three layers:
    rebuilt (not overwritten with a partial version) by every script that
    adds a row to it.
 
+**Exception, Section 7-rolling (Tables 10-13-rolling).** `08b_`, `09b_`, and
+`10b_` cluster on `~predetermined.primary.window + window.start`, not
+`~Vessel.ADFG.Number + window.start` (layer 2 above), the same
+Moulton-problem departure baseline's `08_`/`09_`/`10_` already make from
+their own `~Vessel.ADFG.Number` default (the activation `shock` is a
+leave-one-out mean at the `(primary.fishery, year)` level, so vessels
+sharing a primary in the same year carry nearly identical shock values, and
+vessel clustering does not address that). `diagnostic_rolling_primary_fishery_clustering.R`
+screens the published rolling convention against this swap and a three-way
+attempt before this was adopted, real star-pattern flips turned up for
+Table 12-rolling's `shock` (loses its marginal significance) and both
+Table 12/13-rolling's `overlap.with.primary` (downgrades a significance
+tier), not for the network-similarity or interaction coefficients, which
+were robust to the clustering choice either way. `roll_phase_check()`'s own
+phase-level sub-fits stay hardcoded to `~Vessel.ADFG.Number` regardless of
+what `cluster=` the caller passes for the full-panel fit (a separate,
+not-yet-fixed limitation, flagged by the same methodological review), so
+`se.phase.median`/`se.ratio` for these rows are not on the identical
+clustering convention `se.full` now is.
+
 One inverse-window-count weighting robustness column is added to the Table
 4-rolling headline model only (Table 7-rolling has no weighted column),
 restoring the baseline's one-vessel-one-vote estimand as a check (unweighted
