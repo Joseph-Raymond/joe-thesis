@@ -248,16 +248,23 @@ activation_data_overlap <- activation_data %>%
 cat("Table 12 sample (activation candidates with a computable overlap to the predetermined primary):",
     nrow(activation_data_overlap), "of", nrow(activation_data), "\n")
 
-# cluster = ~Vessel.ADFG.Number explicitly, not left to fixest's default,
-# same fix and same reasoning as Table 10/11 in 08_state_contingent_
-# activation.R, checked directly against the real generated table, leaving
-# vcov unset here resolved to IID rather than to vessel-clustered, contrary
-# to what this table's own writeup discussion assumed ("only marginally
-# significant once standard errors are clustered on the vessel").
+# cluster = ~primary.fishery, not ~Vessel.ADFG.Number, same Moulton-problem
+# reasoning as Table 10/11 in 08_state_contingent_activation.R (see that
+# file's comment above model_activation for the full explanation), the
+# shock is a leave-one-out fleet-wide mean defined at the (primary.fishery,
+# year) level, so vessel clustering does not address vessels sharing a
+# primary fishery in the same year carrying nearly the same shock value.
+# Checked directly (diagnostic_primary_fishery_clustering.R), this widens
+# the shock and overlap.with.primary main-effect SEs enough to drop them
+# from *** to ** but they remain significant, while the interaction
+# shock:overlap.with.primary, already only marginal under vessel
+# clustering, loses significance entirely under this clustering, the
+# "suggestive" calendar-blocking reading in the writeup should be softened
+# further to reflect this, not just left at "suggestive."
 # 10_network_similarity.R's Table 13 column 1 matches this exact call so it
 # still reproduces this table, if this line changes again that one should too.
 model_table12 <- feols(activated ~ shock * overlap.with.primary | Vessel.ADFG.Number + fishery.year,
-                        data = activation_data_overlap, cluster = ~Vessel.ADFG.Number)
+                        data = activation_data_overlap, cluster = ~primary.fishery)
 
 etable(
   model_table12,

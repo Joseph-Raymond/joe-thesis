@@ -245,16 +245,28 @@ activation_data <- activation_candidates %>%
 cat("Activation regression sample:", nrow(activation_data), "\n")
 cat("Mean activation rate:", round(mean(activation_data$activated), 3), "\n")
 
-# cluster = ~Vessel.ADFG.Number explicitly, not left to fixest's default.
-# activation_data is a genuine panel (a vessel appears once per held,
-# non-primary fishery per year, so repeatedly), and checked directly against
-# the real generated table, leaving vcov unset here resolves to IID rather
-# than to "cluster on the first fixed effect," a mistaken assumption this
-# pipeline's other comments made about fixest's actual default. IID ignores
-# the repeated-vessel structure entirely and understates the true standard
-# error, which was silently overstating this table's significance.
+# cluster = ~primary.fishery, not ~Vessel.ADFG.Number. shock is a
+# leave-one-out FLEET-WIDE mean for a given (primary.fishery, year), so any
+# two vessels sharing the same primary fishery in the same year carry
+# nearly the same shock value, they differ only by the leave-one-out
+# adjustment, small whenever the fishery has more than a handful of
+# vessels. Clustering on Vessel.ADFG.Number does not address that, a
+# vessel-clustered SE treats each vessel as an independent draw even when
+# dozens of vessels are really repeating the same underlying (fishery,
+# year) data point, a textbook Moulton (1990) problem. Checked directly
+# (diagnostic_primary_fishery_clustering.R), two-way clustering on
+# Vessel.ADFG.Number + primary.fishery gives numerically identical SEs to
+# primary.fishery alone in every model in this file, which is expected,
+# each vessel's primary fishery is fixed, so the vessel cluster is nested
+# inside the primary.fishery cluster and the Cameron-Gelbach-Miller
+# two-way variance (Var_vessel + Var_primary - Var_intersection, with
+# Var_intersection = Var_vessel here) collapses algebraically to
+# Var_primary alone, so primary.fishery alone is used throughout rather
+# than carrying the redundant two-way form. Earlier vcov = "hetero"/IID
+# history for this table is unaffected by this switch, IID was the
+# separate, already-fixed problem of leaving vcov unset entirely.
 model_activation <- feols(activated ~ shock | Vessel.ADFG.Number + fishery.year, data = activation_data,
-                           cluster = ~Vessel.ADFG.Number)
+                           cluster = ~primary.fishery)
 
 etable(
   model_activation,
@@ -374,11 +386,11 @@ activation_data_placebo <- activation_data %>%
 
 cat("Placebo regression sample (current and future shock both available):", nrow(activation_data_placebo), "\n")
 
-# cluster = ~Vessel.ADFG.Number on both, same reasoning as Table 10 above.
+# cluster = ~primary.fishery on both, same reasoning as Table 10 above.
 model_activation_placebo_sample <- feols(activated ~ shock | Vessel.ADFG.Number + fishery.year,
-                                          data = activation_data_placebo, cluster = ~Vessel.ADFG.Number)
+                                          data = activation_data_placebo, cluster = ~primary.fishery)
 model_placebo_joint <- feols(activated ~ shock + shock.future | Vessel.ADFG.Number + fishery.year,
-                              data = activation_data_placebo, cluster = ~Vessel.ADFG.Number)
+                              data = activation_data_placebo, cluster = ~primary.fishery)
 
 etable(
   model_activation_placebo_sample, model_placebo_joint,
@@ -411,7 +423,7 @@ cat("Event-study sample (lagged, current, and future shock all available):", nro
 
 if (nrow(activation_data_event) > 0) {
   model_event_study <- feols(activated ~ shock.lag + shock + shock.future | Vessel.ADFG.Number + fishery.year,
-                              data = activation_data_event, cluster = ~Vessel.ADFG.Number)
+                              data = activation_data_event, cluster = ~primary.fishery)
   print(etable(model_event_study, headers = "Leads/lags (supplementary)"))
 }
 

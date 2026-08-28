@@ -412,21 +412,33 @@ cat("Table 13 column 1 sample:", n_step2, " published Table 12 sample:", nrow(ac
 # ============================================================================
 #
 # Fixed effects Vessel.ADFG.Number + fishery.year in all three, identical to
-# Table 10 and Table 12. cluster = ~Vessel.ADFG.Number on all three, matching
-# 09_seasonal_overlap.R's model_table12 call, which now passes this
-# explicitly rather than relying on fixest's default (checked directly
-# against the real generated table12_activation_by_seasonal_overlap.tex, the
-# unset default resolved to IID, not vessel-clustered, a mistake fixed there
-# and mirrored here so column 1 still reproduces Table 12 and so this table's
-# own dyadic, repeated-vessel structure gets the same correction).
+# Table 10 and Table 12. cluster = ~primary.fishery on all three, matching
+# 09_seasonal_overlap.R's model_table12 call (see that file's comment for
+# the Moulton-problem reasoning, shock is a leave-one-out fleet-wide mean
+# defined at the (primary.fishery, year) level, so vessel clustering alone
+# does not address vessels sharing a primary fishery in the same year
+# carrying nearly the same shock value). Checked directly
+# (diagnostic_primary_fishery_clustering.R against the vessel-clustered
+# convention this replaced), overlap.with.primary and net.sim.z's own main
+# effects are unaffected in sign or significance throughout, but
+# shock:net.sim.z (column 3) is NOT robust to the choice of second
+# clustering dimension, it GAINS significance here (SE falls from 0.0045 to
+# 0.0029, one star to three) while the Section 5.2 robustness check below,
+# which clusters on Vessel.ADFG.Number + Fishery instead of
+# Vessel.ADFG.Number + primary.fishery, LOSES it entirely (SE 0.0054, no
+# stars). Since net.sim.z is a property of the (Fishery, primary.fishery)
+# pair, neither single choice is more principled than the other, this
+# swing is further evidence the interaction should not be read as an
+# economic finding regardless of which clustering choice a given printout
+# happens to use, see Section 4.4's sign-check discussion below.
 
 model_table13_col1 <- feols(activated ~ shock * overlap.with.primary | Vessel.ADFG.Number + fishery.year,
-                             data = activation_net, cluster = ~Vessel.ADFG.Number)
+                             data = activation_net, cluster = ~primary.fishery)
 model_table13_col2 <- feols(activated ~ shock * net.sim.z | Vessel.ADFG.Number + fishery.year,
-                             data = activation_net, cluster = ~Vessel.ADFG.Number)
+                             data = activation_net, cluster = ~primary.fishery)
 model_table13_col3 <- feols(activated ~ (shock * overlap.with.primary) + (shock * net.sim.z) |
                                Vessel.ADFG.Number + fishery.year,
-                             data = activation_net, cluster = ~Vessel.ADFG.Number)
+                             data = activation_net, cluster = ~primary.fishery)
 
 # dict relabels net.sim.z for the printed/exported table only, the column
 # itself stays net.sim.z so nothing else in this script needs to change if
@@ -508,7 +520,7 @@ cat("  These three numbers are different objects, do not compare column 1's and 
 # needs to know before the writeup is drafted.
 model_ochiai <- feols(activated ~ (shock * overlap.with.primary) + (shock * net.ochiai.z) |
                          Vessel.ADFG.Number + fishery.year,
-                       data = activation_net, cluster = ~Vessel.ADFG.Number)
+                       data = activation_net, cluster = ~primary.fishery)
 
 cat("Section 5.1, printed-only Ochiai-normalization robustness (not written as a table)\n")
 print(etable(model_ochiai, headers = "Both, Ochiai instead of Jaccard (printed only)"))
@@ -538,7 +550,7 @@ print(etable(model_table13_col3_cluster, headers = "Both, clustered on vessel an
 # barely move between this reference refit and the real column 1
 # (fit on the narrower activation_net above).
 model_table12_refit <- feols(activated ~ shock * overlap.with.primary | Vessel.ADFG.Number + fishery.year,
-                              data = activation_data_overlap, cluster = ~Vessel.ADFG.Number)
+                              data = activation_data_overlap, cluster = ~primary.fishery)
 
 cat("Section 5.3, printed-only Table 12 spec refit on its own original sample, for reference\n")
 print(etable(model_table12_refit, headers = "Table 12 spec, original sample (printed only)"))
@@ -603,7 +615,7 @@ model_size_control <- feols(
     shock:log(n.remaining.vessels) + log(n.remaining.vessels) +
     shock:log(n.vessels.B) |
     Vessel.ADFG.Number + fishery.year,
-  data = activation_net, cluster = ~Vessel.ADFG.Number
+  data = activation_net, cluster = ~primary.fishery
 )
 
 cat("Section 5.4, printed-only decisive test, shock x net.sim.z with two shock-precision controls\n")
@@ -715,7 +727,7 @@ cat("Section 5.7, top-1-percent-trimmed refit, dropped",
 
 model_trimmed <- feols(
   activated ~ (shock * overlap.with.primary) + (shock * net.sim.z) | Vessel.ADFG.Number + fishery.year,
-  data = activation_net_trimmed, cluster = ~Vessel.ADFG.Number
+  data = activation_net_trimmed, cluster = ~primary.fishery
 )
 
 cat("Section 5.7, printed-only top-1-percent-trimmed refit of column 3\n")
