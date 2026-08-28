@@ -457,8 +457,8 @@ figure7 <- figure7_data %>%
   ggplot(aes(x = net.distance, weight = weight, fill = source, y = after_stat(density))) +
   geom_histogram(bins = 30, position = "identity", alpha = 0.5, color = "white") +
   labs(
-    title = "Network distance of observed fishery switches vs. a within-vessel-year null",
-    subtitle = "Distance = 1 - Jaccard co-participation similarity, held-based, all years pooled. Null = random pairing among fisheries the vessel actually fished that year",
+    title = "Observed fishery switches vs. a within-vessel-year null",
+    subtitle = "Network distance = 1 - Jaccard co-participation similarity",
     x = "Network distance", y = "Density", fill = NULL
   ) +
   theme_minimal() +
@@ -502,8 +502,8 @@ figure7b <- pooled_distances %>%
   geom_histogram(bins = 30, position = "identity", alpha = 0.5, color = "white") +
   scale_x_continuous(limits = c(0, 1)) +
   labs(
-    title = "Network-distance percentile of observed switches vs. the null",
-    subtitle = "0 = most similar (cheapest) pair, 1 = least similar, observed and null pooled before ranking",
+    title = "Same comparison, network-distance percentile",
+    subtitle = "0 = most similar pair, 1 = least similar, pooled before ranking",
     x = "Network-distance percentile (observed + null pooled)", y = "Density", fill = NULL
   ) +
   theme_minimal() +
