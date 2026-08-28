@@ -2,30 +2,38 @@
 
 Reproducible R scripts for the figures and tables in `Chapter3_outline.md`,
 Section 2 (Table 1, Table 2), Section 3 (Figure 1, Figure 2, Table 3),
-Section 4 (Table 4, Figure 3), Section 5 (Figure 5, Figure 6, Table 6),
-Section 6 (Table 7, Table 8, Figure 8, Figure 9), and Section 7 (Table 10,
-Figure 10, Table 11, Table 12, and Table 13). Every item marked `[maybe]` in
-the outline (Table 3b, Figure 4, Figure 7, Table 9) and the "if I have time"
-block at the end of Section 6 are skipped, not built here. Table 2, Table 12,
-and Table 13 are the exceptions, Table 2 turned out cheap enough to build
-alongside Table 1, and Table 12 became buildable once `09_seasonal_overlap.R`
-gave it an interaction ingredient neither originally-scoped one (the Section 5
-co-participation network, the Figure 3 return correlation) ever was, see
-that script's header. `09_seasonal_overlap.R` also builds Figure 11, which
-is not in the outline at all, a re-cut of Section 3's wedge by whether a
-held-but-unfished permit's season conflicted with what the vessel actually
-fished that year.
+Section 4 (Table 4, Figure 3), Section 5 (Figure 5, Figure 6, Table 6,
+Figure 7), Section 6 (Table 7, Table 8, Figure 8, Figure 9), and Section 7
+(Table 10, Figure 10, Table 11, Table 12, and Table 13). Every item marked
+`[maybe]` in the outline other than Figure 7 (so Table 3b, Figure 4, and
+Table 9) and the "if I have time" block at the end of Section 6 are skipped, not
+built here. Table 2, Figure 7, Table 12, and Table 13 are the exceptions,
+Table 2 turned out cheap enough to build alongside Table 1, and Table 12
+became buildable once `09_seasonal_overlap.R` gave it an interaction
+ingredient neither originally-scoped one (the Section 5 co-participation
+network, the Figure 3 return correlation) ever was, see that script's
+header. `09_seasonal_overlap.R` also builds Figure 11, which is not in the
+outline at all, a re-cut of Section 3's wedge by whether a held-but-unfished
+permit's season conflicted with what the vessel actually fished that year.
 
 `10_network_similarity.R` builds the second of those two originally-scoped
 interaction ingredients, the Section 5 co-participation network (Kroetz et al.
 2019, Addicott et al. 2018 style), previously listed below as skipped
-entirely for `06_within_season_reallocation.R`'s purposes. It is still
-skipped for Figure 7 (switch events weighted by that network, out of scope
-for this addition), but is now built off the saved panel alone for Table 13,
-a simple pairwise Jaccard similarity of co-held vessel sets rather than the
-closeness-centrality version the outline names, see that script's header for
-why. This adds Table 13 (a three-column extension of Table 12) and the
-optional Table 14 (a small face-validity exhibit), neither in the outline.
+entirely for `06_within_season_reallocation.R`'s purposes. It is now built
+off the saved panel alone for Table 13, a simple pairwise Jaccard similarity
+of co-held vessel sets rather than the closeness-centrality version the
+outline names, see that script's header for why. This adds Table 13 (a
+three-column extension of Table 12) and the optional Table 14 (a small
+face-validity exhibit), neither in the outline.
+
+`11_switch_event_weights.R` builds Figure 7 (switch events between
+consecutive trips, weighted by the same co-participation distance measure),
+using a locally rebuilt copy of `10_`'s network rather than a shared object,
+see that script's header for why. It runs at trip grain
+(`Vessel.ADFG.Number` x `Date.Landed`, matching `get.trip()` in
+`myfunctions.R`) rather than the week grain `06_within_season_reallocation.R`
+uses for Figure 5/6/Table 6, and is descriptive only, no table, no
+regression, matching the outline's own scope for this item.
 
 ## Rerun 01 through 08 before trusting ANY existing output, `H_LR` was wrong
 
@@ -102,7 +110,16 @@ existing code).
 08_state_contingent_activation.R  # Table 10, Figure 10, Table 11
 09_seasonal_overlap.R             # Table 12, Figure 11
 10_network_similarity.R           # Table 13, Table 14
+11_switch_event_weights.R         # Figure 7, Figure 7b
 ```
+
+`11_switch_event_weights.R` is numbered last purely for `run_all.R`
+ordering convenience. Its real dependencies are `01_build_panel.R`
+(`vessel_fishery_year`, for a locally rebuilt copy of the network) and
+`06_within_season_reallocation.R` (`switching_by_vessel_year`, for a
+face-validity cross-check), not 07 through 10, see its own header for why
+it does not load anything saved by `10_network_similarity.R` even though
+both build the same network.
 
 Each of 02 through 05 loads `intermediate data/ch3_panel.rdata` if the panel
 objects are not already in memory, so they can be run independently in a
@@ -274,15 +291,23 @@ point it is made in the code.
   Add that file before trusting any dollar-denominated output across the
   1991-2021 panel, `chapter3_plan.md` Section 9.3 explains why CPI rather
   than a seafood price index is the right choice here.
-- **Section 5's within-season target switching skips the cross-fishery
-  co-participation network and Figure 7 entirely.** `chapter3_plan.md` Section 0.1 scopes
-  that network (Kroetz et al. 2019, Addicott et al. 2018 style) as the
-  weight for switch events, which only feeds the `[maybe]` Figure 7 and
-  Section 7's `[maybe]` Table 12, not Figure 5, Figure 6, or Table 6. None of
-  those three need it, so `06_within_season_reallocation.R` never builds it.
-  `MIN_LANDINGS = 3` (vessel-fishery-years) and `MIN_SEASON_LANDINGS = 10`
-  (fleet-wide fishery-years) are judgment calls, not facts, CHECK them once
-  run against real data.
+- **`06_within_season_reallocation.R` skips the cross-fishery
+  co-participation network entirely, none of Figure 5, Figure 6, or Table 6
+  need it.** `chapter3_plan.md` Section 0.1 scopes that network (Kroetz et al.
+  2019, Addicott et al. 2018 style) as the weight for switch events, which
+  now feeds Figure 7 in `11_switch_event_weights.R` and Table 12/13 in
+  `09_seasonal_overlap.R`/`10_network_similarity.R`. `MIN_LANDINGS = 1`
+  (vessel-fishery-years, `06_`) and `MIN_SEASON_LANDINGS = 10` (fleet-wide
+  fishery-years, `06_`) are judgment calls, not facts, CHECK them once run
+  against real data.
+- **`11_switch_event_weights.R`'s trip-fishery assignment is a judgment
+  call, not a fact.** A same-day landing under two permits is assigned to
+  its higher-revenue fishery for the headline (PRIMARY) sequence, tie-broken
+  on pounds landed, then on Fishery code. A SENSITIVITY sequence built
+  alongside it instead drops those trip-days rather than picking a winner,
+  and the script prints both switch counts and mean distances so the two
+  can be compared once run against real data, CHECK how far apart they land
+  before treating the PRIMARY figure as settled.
 - **Table 7/8's regression is `log(rev.cv) ~ H_bar`, not the levels
   specification Table 4 and Table 6 use.** Table 4 runs in levels
   specifically because `H_bar = H_LR + Phi` only decomposes additively in

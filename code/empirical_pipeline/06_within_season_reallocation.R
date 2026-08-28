@@ -7,10 +7,12 @@
 #           vessel_period_summary) on within-season turnover, with
 #           prime.fishery and period fixed effects.
 #
-# Skips the cross-fishery co-participation network and Figure 7 (switch
-# events weighted by that network), both marked [maybe] in
-# Chapter3_outline.md. Neither required output above needs the network, it
-# only feeds the optional Figure 7 and Section 7's optional Table 12.
+# Skips the cross-fishery co-participation network itself, none of Figure 5,
+# Figure 6, or Table 6 above need it. Figure 7 (switch events weighted by
+# that network), marked [maybe] in Chapter3_outline.md, is now built in
+# 11_switch_event_weights.R instead, at trip grain rather than the week
+# grain this script uses, see that script's header for why it is a separate
+# file rather than a new section here.
 #
 # Everything here follows chapter3_plan.md Section 9.3's "5A, expanded" spec
 # (the resolved version of the plan, superseding the earlier draft in

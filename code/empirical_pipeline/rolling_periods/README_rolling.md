@@ -122,6 +122,16 @@ run_all_rolling.R                              # sources everything below in ord
   10b_network_similarity_rolling.R              # Table 13-rolling (needs 08b_'s saved activation panel)
 ```
 
+There is no `11b_`. Figure 7 (`11_switch_event_weights.R` in the baseline
+chain, switch events between consecutive trips weighted by co-participation
+network distance) is a pooled distribution over switch events, no fixed
+effect, no regression, and the network it weights by is all-years-pooled
+and period-invariant by explicit design in both `10_` and `10b_`. It carries
+no period structure to roll, the same reasoning that already keeps Figure
+5/Figure 6 out of this rolling chain (see `06b_`'s own header). It runs once,
+in the baseline chain, and applies unchanged regardless of which of
+baseline/rolling is primary for the chapter.
+
 `10b_` is a rolling-window twin of the baseline's `10_network_similarity.R`, added after the
 baseline Table 13 addition to the writeup, not part of the original three-tier build. The
 co-participation network itself stays all-years pooled, unchanged from baseline, same reasoning
