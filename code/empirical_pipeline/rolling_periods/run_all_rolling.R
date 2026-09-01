@@ -38,6 +38,20 @@
 # (it reads intermediate data/ch3_predicted_bh.rdata, which only 12b_
 # builds).
 #
+# 12c_/13c_, the predicted buy-and-hold Phi benchmark (Chapter 2's
+# Phi = H_bar - H_LR decomposition, empirical analog, see 12c_'s own header
+# note). Placed immediately after 12b_/13b_ for the same reason those two
+# are placed at the end, 12c_ needs only 01b_'s own saved objects
+# (intermediate data/ch3_rolling.rdata) plus the baseline panel, nothing
+# from 12b_/13b_ themselves (12c_ duplicates, rather than shares, 12b_'s own
+# Sections 1-2 machinery, see 12c_'s header note on that choice), so 12c_
+# could in principle run anywhere after 01b_, kept here purely to group the
+# two predicted-BH benchmark pairs together. 13c_ must run after 12c_ (it
+# reads intermediate data/ch3_predicted_bh_phi.rdata, which only 12c_
+# builds) AND after 06b_ (it reads intermediate data/ch3_rolling_tau.rdata
+# for its own tau-quartile external validation check, built by 06b_, already
+# guaranteed to have run by this point in the fixed order below).
+#
 # THIS CANNOT BE RUN LOCALLY, same as run_all.R, see 00_setup.R.
 
 source("code/empirical_pipeline/rolling_periods/01b_build_rolling_panel.R")
@@ -49,3 +63,5 @@ source("code/empirical_pipeline/rolling_periods/09b_seasonal_overlap_rolling.R")
 source("code/empirical_pipeline/rolling_periods/10b_network_similarity_rolling.R")
 source("code/empirical_pipeline/rolling_periods/12b_predicted_bh_revenue_rolling.R")
 source("code/empirical_pipeline/rolling_periods/13b_predicted_bh_revenue_figures_rolling.R")
+source("code/empirical_pipeline/rolling_periods/12c_predicted_bh_phi_rolling.R")
+source("code/empirical_pipeline/rolling_periods/13c_predicted_bh_phi_figures_rolling.R")

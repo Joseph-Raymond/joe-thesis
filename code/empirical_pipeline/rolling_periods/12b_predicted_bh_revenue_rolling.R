@@ -104,11 +104,63 @@
 # actual.matching.total, actual.full.total, coverage, and the
 # mean.n.active.years.predicted/mean.n.ratio.years.predicted lookback-depth
 # diagnostics added per a methodological review of
-# 13b_predicted_bh_revenue_figures_rolling.R, see Section 6 below) and
-# predicted_bh_detail.rolling (one row per Vessel.ADFG.Number x Fishery x
-# window.start attempted, the diagnostic detail table
-# predicted_bh_vessel_window.rolling is aggregated from) to
+# 13b_predicted_bh_revenue_figures_rolling.R, plus mean.abs.days.component/
+# mean.abs.rate.component, the days-vs-rate MAD split added per a further
+# methodological review, see Section 6 below) and predicted_bh_detail.rolling
+# (one row per Vessel.ADFG.Number x Fishery x window.start attempted, the
+# diagnostic detail table predicted_bh_vessel_window.rolling is aggregated
+# from, now also carrying actual.days, actual.rate, predicted.rate, and the
+# exact additive log decomposition days.component/rate.component/
+# total.log.deviation, see Section 4-6 below) to
 # intermediate data/ch3_predicted_bh.rdata.
+#
+# DAYS-VERSUS-RATE LOG DECOMPOSITION (Section 4-6), added per a
+# methodological review's suggestion to split this script's existing
+# held-out-year deviation into a component driven by the vessel's own
+# realized EFFORT departing from its own lookback average (avg.days) and a
+# component driven by the realized PER-DAY RATE departing from the
+# predicted one (fleet.rate.excl.i.target * vessel.ratio). Because
+# actual.revenue = actual.days * actual.rate and predicted.revenue =
+# avg.days * predicted.rate both hold EXACTLY by construction (actual.rate
+# is DERIVED as actual.revenue / actual.days, not reused from this script's
+# own separately-computed rev.per.day column, which sits on a different
+# revenue basis, see Section 4's own comment), the log difference splits
+# additively with no approximation,
+#
+#   log(actual.revenue) - log(predicted.revenue)
+#     = [log(actual.days) - log(avg.days)] + [log(actual.rate) - log(predicted.rate)]
+#
+# verified numerically in this script's own Section 5 diagnostic and in the
+# synthetic-data test (synthetic_test_predicted_bh.R). 13b_'s Figure B (the
+# existing |actual - predicted| / predicted magnitude measure) is left
+# entirely unchanged, this decomposition is purely additive, a new pair of
+# columns/figures alongside it, NOT a replacement, and (a methodological
+# review flagged this explicitly, see 13b_'s own header note) NOT a
+# decomposition of Figure B's own dollar-total-level metric either, Figure B
+# aggregates to the vessel-window DOLLAR TOTAL first and takes an absolute
+# relative deviation there, this decomposition works at the per-fishery LOG
+# level, different aggregation, different transform, the two do not sum to
+# each other even in expectation.
+#
+# CAVEAT, actual.rate mixes two revenue bases, added per a methodological
+# review. actual.revenue (vessel_fishery_year's own basis) and actual.days
+# (this script's OWN cleaned-ticket fishing.days, Section 1) do not
+# necessarily come from the identical cleaning pipeline, so actual.rate =
+# actual.revenue / actual.days is really "this script's own per-day rate at
+# window.end" TIMES a level wedge actual.revenue / revenue.clean.target
+# (revenue.clean.target being what this script's OWN cleaning would have put
+# in the numerator instead). The additive identity above still holds EXACTLY
+# regardless, that is pure algebra, but rate.component's INTERPRETATION is
+# not symmetric with days.component's, days.component is clean (avg.days and
+# actual.days both sit on this script's own Section 1 basis throughout),
+# rate.component absorbs this level wedge on top of the genuine realized
+# per-day-rate deviation. Section 6 now prints the distribution of
+# actual.revenue / revenue.clean.target at window-end for exactly this
+# reason, see that diagnostic's own comment. The synthetic-data test cannot
+# catch this (it sets actual.revenue == revenue.clean by construction, there
+# being no second cleaning pipeline to fabricate a wedge against), this
+# caveat is a reading-of-real-output note, not a bug the test suite is
+# expected to catch.
 
 source("code/empirical_pipeline/00_setup.R")
 source("code/empirical_pipeline/rolling_periods/00b_rolling_periods.R")
@@ -513,6 +565,34 @@ cat("Vessel x fishery x window cells where the vessel itself was active at windo
     "other active vessels) leave-one-out fleet rate -",
     sum(is.finite(fleet_rate_at_target.rolling$fleet.rate.excl.i.target)), "\n")
 
+# vessel_bh_at_target.rolling, ADDED per a methodological review's request to
+# split the held-out-year deviation into a days component and a rate
+# component (Section 5/6 below). Carries the vessel's OWN window.end
+# fishing.days forward (from active_bh.rolling, Section 2's already-active-
+# filtered revenue.clean > 0 & fishing.days > 0 table), the identical basis
+# fleet_rate_at_target.rolling itself traces to (both come from
+# active_bh.rolling by way of fleet_rate_loo.rolling), so a row exists here
+# if and only if a row exists there, "vessel.active.at.target" (Section 5)
+# governs both consistently and no new gating condition is introduced.
+# fishing.days, not rev.per.day, is carried, this script's Section 6
+# decomposition derives actual.rate as actual.revenue / actual.days rather
+# than reusing this table's own rev.per.day, see Section 6's own comment on
+# why that distinction matters for the decomposition to be EXACT. revenue.clean
+# is ALSO carried (as revenue.clean.target), used only for Section 6's own
+# revenue-basis diagnostic (actual.revenue / revenue.clean.target), see that
+# diagnostic's own comment for why this ratio matters. relationship =
+# "many-to-many" added per a methodological review, matching this pipeline's
+# own established style for a window_grid.rolling %>% inner_join(...,
+# by = "window.end") join (01b_'s H_bar.rolling/S_ijw.rolling joins both use
+# it for the identical reason) and suppressing dplyr's relationship-
+# inference warning on this one-to-one-in-practice-but-not-guaranteed join.
+vessel_bh_at_target.rolling <- window_grid.rolling %>%
+  select(window.start, window.end) %>%
+  inner_join(active_bh.rolling %>% rename(window.end = Batch.Year), by = "window.end",
+             relationship = "many-to-many") %>%
+  select(Vessel.ADFG.Number, Fishery, window.start,
+         actual.days.target = fishing.days, revenue.clean.target = revenue.clean)
+
 # ============================================================================
 # 5. Candidate universe and predicted_ijw
 # ============================================================================
@@ -604,7 +684,122 @@ predicted_bh_detail.rolling <- target_fisheries.rolling %>%
       !has.target.fleet.rate     ~ "valid ratio but fewer than BH_MIN_OTHER_ACTIVE_VESSELS other active vessels at window-end",
       TRUE ~ NA_character_
     )
-  )
+  ) %>%
+  left_join(vessel_bh_at_target.rolling, by = c("Vessel.ADFG.Number", "Fishery", "window.start")) %>%
+  mutate(
+    # Days-versus-rate log decomposition, ADDED per a methodological
+    # review's suggestion. actual.days is carried in above from
+    # vessel_bh_at_target.rolling (Section 4, this script's own cleaned
+    # ticket data), present if and only if vessel.active.at.target is TRUE,
+    # which is already a NECESSARY condition for predicted.revenue itself to
+    # be non-NA (see has.target.fleet.rate/vessel.active.at.target above),
+    # so actual.days is always defined wherever this decomposition is
+    # actually needed, no extra gating beyond what already exists.
+    actual.days = actual.days.target,
+    # actual.rate is DERIVED as actual.revenue / actual.days, deliberately
+    # NOT vessel_bh_at_target.rolling's own rev.per.day (a DIFFERENT
+    # quantity, revenue.clean / fishing.days, sitting on this script's own
+    # cleaned-ticket revenue basis rather than actual.revenue's
+    # vessel_fishery_year basis, see this script's header note on the two
+    # revenue sources). Deriving actual.rate this way is what makes
+    # actual.revenue = actual.days * actual.rate hold EXACTLY (to floating-
+    # point precision), which is what the additive log identity below
+    # depends on, reusing rev.per.day instead would only approximately
+    # satisfy that identity and defeat the point of an EXACT decomposition.
+    actual.rate = if_else(is.finite(actual.days) & actual.days > 0,
+                           actual.revenue / actual.days, NA_real_),
+    # predicted.rate mirrors actual.rate's role on the predicted side,
+    # predicted.revenue = avg.days * predicted.rate holds exactly by the
+    # same construction (predicted.revenue's own formula above, restated
+    # here as a factor rather than recomputed).
+    predicted.rate = fleet.rate.excl.i.target * vessel.ratio,
+    # Each component guarded independently (is.finite() & > 0 on every
+    # input to its own log()), a rare negative or exactly-zero
+    # revenue/rate (e.g. a correction/refund ticket, see 01b_'s own
+    # hhi_check comment on this edge case) sets that ONE component to NA
+    # rather than propagating a NaN silently through the sum below. Since
+    # predicted.revenue is already NA for every row not passing every
+    # upstream gate, and actual.revenue > 0 always holds for a "fished" row
+    # by vessel_fishery_year's own definition, these three quantities are
+    # in practice defined together or not at all.
+    days.component = if_else(
+      is.finite(actual.days) & actual.days > 0 & is.finite(avg.days) & avg.days > 0,
+      log(actual.days) - log(avg.days), NA_real_
+    ),
+    rate.component = if_else(
+      is.finite(actual.rate) & actual.rate > 0 & is.finite(predicted.rate) & predicted.rate > 0,
+      log(actual.rate) - log(predicted.rate), NA_real_
+    ),
+    total.log.deviation = if_else(
+      is.finite(actual.revenue) & actual.revenue > 0 & is.finite(predicted.revenue) & predicted.revenue > 0,
+      log(actual.revenue) - log(predicted.revenue), NA_real_
+    ),
+    # revenue.basis.ratio, ADDED per a methodological review (see the
+    # diagnostic immediately below for the full caveat this exists to make
+    # visible), NOT used in the decomposition itself, dropped again at the
+    # select(-...) just below, computed here only because revenue.clean.target
+    # is only in scope inside this mutate() block.
+    revenue.basis.ratio = if_else(
+      is.finite(revenue.clean.target) & revenue.clean.target > 0 & is.finite(predicted.revenue),
+      actual.revenue / revenue.clean.target, NA_real_
+    )
+  ) %>%
+  select(-actual.days.target)
+
+# CAVEAT, ADDED per a methodological review. actual.rate mixes TWO revenue
+# bases, actual.revenue (vessel_fishery_year's own, whatever cleaning
+# 01_build_panel.R applied) and actual.days (this script's OWN
+# cleaned-ticket fishing.days, Section 1), so actual.rate = actual.revenue /
+# actual.days is not quite "this script's own per-day rate at window.end",
+# it is that rate TIMES the level wedge actual.revenue / revenue.clean.target
+# (revenue.clean.target being what THIS script's own cleaning would have
+# put in the numerator instead). The additive identity days.component +
+# rate.component == total.log.deviation still holds EXACTLY regardless (both
+# sides trace back to the same actual.revenue/predicted.revenue and
+# actual.days/avg.days, see this script's header note and the synthetic-data
+# test), that identity is a matter of algebra, not of which revenue basis is
+# "correct". What is NOT symmetric is the INTERPRETATION of the two
+# components, days.component is clean (both avg.days and actual.days sit on
+# this script's own Section 1 cleaning throughout), but rate.component
+# absorbs log(actual.revenue / revenue.clean.target) on top of "the realized
+# per-day rate deviation" proper, since predicted.rate is entirely on the
+# revenue.clean basis while actual.rate's numerator is not. The
+# synthetic-data test cannot catch this on its own (it sets
+# actual.revenue == revenue.clean by construction for every fabricated row,
+# there being no separate "two cleaning pipelines" concept to fabricate a
+# wedge for), so the diagnostic below is the only place this is actually
+# checked against anything resembling real data, not run here since this
+# cannot execute against real data locally, see 00_setup.R.
+cat("\n===== Revenue-basis diagnostic (actual.revenue / revenue.clean.target at window-end) =====\n")
+revenue_basis_check.rolling <- predicted_bh_detail.rolling %>% filter(is.finite(revenue.basis.ratio))
+cat("Rows entering the decomposition with a computable revenue.basis.ratio -", nrow(revenue_basis_check.rolling), "\n")
+if (nrow(revenue_basis_check.rolling) > 0) {
+  print(round(quantile(revenue_basis_check.rolling$revenue.basis.ratio,
+                        probs = c(0, .1, .25, .5, .75, .9, 1), na.rm = TRUE), 4))
+  cat("A ratio far from 1 (in either direction) or with a wide spread means actual.revenue and",
+      "revenue.clean.target diverge materially at window-end, in which case rate.component above should be",
+      "read as \"realized rate deviation PLUS this level wedge\", not a clean per-day-rate-only measure,",
+      "see this script's own caveat comment just above for the full explanation\n")
+} else {
+  cat("(No rows with a computable revenue.basis.ratio, nothing to summarize)\n")
+}
+predicted_bh_detail.rolling <- predicted_bh_detail.rolling %>%
+  select(-revenue.clean.target, -revenue.basis.ratio)
+
+# Live sanity check of the identity days.component + rate.component ==
+# total.log.deviation, printed rather than just asserted in a comment, so a
+# reviewer can see it holds (up to floating-point epsilon) on real data too,
+# not only in the synthetic-data test. NA rows (any of the three components
+# undefined) are excluded via na.rm-equivalent finiteness filtering before
+# the max(), an all-NA/empty result prints -Inf rather than erroring, which
+# would itself be a loud signal something upstream broke.
+decomposition_check.rolling <- predicted_bh_detail.rolling %>%
+  filter(is.finite(days.component), is.finite(rate.component), is.finite(total.log.deviation)) %>%
+  mutate(identity.residual = total.log.deviation - (days.component + rate.component))
+cat("Days + rate decomposition identity check, rows with all three components defined -",
+    nrow(decomposition_check.rolling), ", max absolute residual (should be ~0, floating-point epsilon) -",
+    if (nrow(decomposition_check.rolling) > 0) max(abs(decomposition_check.rolling$identity.residual)) else NA_real_,
+    "\n")
 
 cat("\n===== Predicted BH-effort revenue funnel, across all vessel-fishery-windows attempted =====\n")
 funnel_bh.rolling <- predicted_bh_detail.rolling %>%
@@ -647,6 +842,19 @@ print(funnel_bh.rolling)
 # portfolio, where a min would reduce to a single weakest-link fishery and
 # be noisier for exactly the wide-portfolio (high-Phi) vessel-windows this
 # diagnostic most needs to speak to.
+#
+# mean.abs.days.component / mean.abs.rate.component, ADDED per a
+# methodological review's suggestion to split the held-out-year MAD
+# deviation into a days component and a rate component. Built with the
+# IDENTICAL pattern as mean.n.active.years.predicted/mean.n.ratio.years.predicted
+# immediately above (same restriction to J.predicted via the same
+# if_else(!is.na(predicted.revenue), ..., NA) term, same plain mean, same
+# na.rm = TRUE, same n.fisheries.predicted > 0 gate applied below), an
+# unweighted per-vessel-window mean of each component's ABSOLUTE value
+# across its own predicted fisheries, the natural "days vs rate" analog of
+# 13b_'s own |actual - predicted| / predicted magnitude measure (Figure B
+# there), which this pair of columns is designed to feed directly (see
+# 13b_'s own new Section 4b).
 predicted_bh_vessel_window.rolling <- predicted_bh_detail.rolling %>%
   group_by(Vessel.ADFG.Number, window.start, window.end) %>%
   summarise(
@@ -661,6 +869,12 @@ predicted_bh_vessel_window.rolling <- predicted_bh_detail.rolling %>%
     mean.n.ratio.years.predicted.raw = mean(
       if_else(!is.na(predicted.revenue), as.numeric(n.ratio.years), NA_real_), na.rm = TRUE
     ),
+    mean.abs.days.component.raw = mean(
+      if_else(!is.na(predicted.revenue), abs(days.component), NA_real_), na.rm = TRUE
+    ),
+    mean.abs.rate.component.raw = mean(
+      if_else(!is.na(predicted.revenue), abs(rate.component), NA_real_), na.rm = TRUE
+    ),
     .groups = "drop"
   ) %>%
   mutate(
@@ -671,10 +885,13 @@ predicted_bh_vessel_window.rolling <- predicted_bh_detail.rolling %>%
     # definition), guarded anyway rather than assumed.
     coverage              = if_else(actual.full.total > 0, actual.matching.total / actual.full.total, NA_real_),
     mean.n.active.years.predicted = if_else(n.fisheries.predicted > 0, mean.n.active.years.predicted.raw, NA_real_),
-    mean.n.ratio.years.predicted  = if_else(n.fisheries.predicted > 0, mean.n.ratio.years.predicted.raw, NA_real_)
+    mean.n.ratio.years.predicted  = if_else(n.fisheries.predicted > 0, mean.n.ratio.years.predicted.raw, NA_real_),
+    mean.abs.days.component       = if_else(n.fisheries.predicted > 0, mean.abs.days.component.raw, NA_real_),
+    mean.abs.rate.component       = if_else(n.fisheries.predicted > 0, mean.abs.rate.component.raw, NA_real_)
   ) %>%
   select(-predicted.total.raw, -actual.matching.total.raw,
-         -mean.n.active.years.predicted.raw, -mean.n.ratio.years.predicted.raw)
+         -mean.n.active.years.predicted.raw, -mean.n.ratio.years.predicted.raw,
+         -mean.abs.days.component.raw, -mean.abs.rate.component.raw)
 
 cat("\n===== predicted_bh_vessel_window.rolling summary =====\n")
 cat("Vessel-window rows -", nrow(predicted_bh_vessel_window.rolling), ", distinct vessels -",
@@ -689,6 +906,12 @@ cat("Mean lookback depth across J.predicted, mean.n.active.years.predicted -",
     round(mean(predicted_bh_vessel_window.rolling$mean.n.active.years.predicted, na.rm = TRUE), 3),
     ", mean.n.ratio.years.predicted -",
     round(mean(predicted_bh_vessel_window.rolling$mean.n.ratio.years.predicted, na.rm = TRUE), 3), "\n")
+cat("Mean of mean.abs.days.component across vessel-windows -",
+    round(mean(predicted_bh_vessel_window.rolling$mean.abs.days.component, na.rm = TRUE), 4),
+    ", mean of mean.abs.rate.component -",
+    round(mean(predicted_bh_vessel_window.rolling$mean.abs.rate.component, na.rm = TRUE), 4),
+    "(the days-vs-rate split of the held-out-year log deviation, see 13b_'s own",
+    "figure3d_gap_components_by_phi_predicted_bh_effort_rolling.png for the Phi-binned version)\n")
 cat("predicted.total and actual.matching.total/actual.full.total are on the SAME real, CPI-deflated",
     "dollar basis (base year MAX_YEAR), revenue.clean was deflated in Section 1 via the same",
     "load_deflator()/deflate() machinery vessel_fishery_year$revenue itself was deflated with in",

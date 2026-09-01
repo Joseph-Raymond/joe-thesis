@@ -45,11 +45,35 @@
 # 05b_table4_figure3_rolling.R nor 12b_predicted_bh_revenue_rolling.R is
 # edited by this script.
 #
-# Saves figure3_predicted_bh_effort_rolling.png and
-# figure3b_gap_by_phi_predicted_bh_effort_rolling.png to figure_dir. Prints
-# three additional diagnostics (signed relative deviation by Phi bin, mean
-# coverage by Phi bin, mean lookback depth by Phi bin), console only, no
-# figure files for any of the three.
+# Saves figure3_predicted_bh_effort_rolling.png,
+# figure3b_gap_by_phi_predicted_bh_effort_rolling.png, and (Section 4b, ADDED
+# per a methodological review's suggestion) figure3d_gap_components_by_phi_predicted_bh_effort_rolling.png
+# to figure_dir. Prints three additional diagnostics (signed relative
+# deviation by Phi bin, mean coverage by Phi bin, mean lookback depth by Phi
+# bin) plus Section 4b's own specialist consistency check (both components'
+# mean for the Phi = 0 bin vs. the multi-fishery bins' own average, printed
+# explicitly) and an optional exact variance/covariance decomposition,
+# console only, no figure files for any of these.
+#
+# FIGURE D IS NOT A DECOMPOSITION OF FIGURE B, a methodological review
+# flagged that the previous version of this header (and this figure's own
+# title) incorrectly implied it was. Figure B's own gap is
+# abs(actual.matching.total - predicted.total) / predicted.total, computed
+# ONCE per vessel-window on DOLLAR TOTALS summed across J.predicted
+# fisheries. Figure D instead plots, per Phi bin, the mean of
+# mean.abs.days.component and mean.abs.rate.component, themselves each an
+# unweighted mean of a PER-FISHERY LOG-space absolute deviation
+# (12b_'s Section 6). Different aggregation level (dollar total vs
+# per-fishery), different transform (a relative dollar deviation vs a mean
+# of absolute log deviations), and even restricted to a common level and
+# transform, MEAN|days| + MEAN|rate| does not equal MEAN|days + rate|
+# whenever the two partially offset within a fishery (Jensen's-inequality-
+# style slack, this script's own synthetic-data test Row 2, an "offsetting
+# departures" case, demonstrates this concretely). Figure D is a genuinely
+# separate, per-fishery, log-space diagnostic MOTIVATED by the same
+# underlying prediction-error mechanism Figure B summarizes at the dollar
+# level, not an algebraic decomposition of Figure B's own number, and Figure
+# D's own subtitle now says so explicitly.
 
 source("code/empirical_pipeline/00_setup.R")
 source("code/empirical_pipeline/rolling_periods/00b_rolling_periods.R")
@@ -302,6 +326,181 @@ ggsave(file.path(figure_dir, "figure3b_gap_by_phi_predicted_bh_effort_rolling.pn
        figure3b_predicted_bh_effort.rolling, width = 7, height = 5, dpi = 300)
 
 cat("Wrote figure3b_gap_by_phi_predicted_bh_effort_rolling.png\n")
+
+# ============================================================================
+# 4b. Figure D, figure3d_gap_components_by_phi_predicted_bh_effort_rolling.png
+#     Per-fishery, log-space days/rate deviation, by Phi bin, ADDED per a
+#     methodological review's suggestion
+# ============================================================================
+#
+# NOT A DECOMPOSITION OF FIGURE B, see this script's own header note for the
+# full explanation (different aggregation level, different transform,
+# absolute values do not sum additively even at a common level whenever the
+# two components partially offset). Figure D is a separate diagnostic,
+# motivated by the same underlying prediction-error mechanism, built from
+# 12b_'s own EXACT additive log identity
+# log(actual.revenue) - log(predicted.revenue) = days.component + rate.component
+# (that script's own header note has the full derivation and the exactness
+# argument, that identity itself IS exact, only Figure B and Figure D's
+# comparability is not), aggregated to the vessel-window level as
+# mean.abs.days.component/mean.abs.rate.component using the IDENTICAL
+# unweighted-mean-across-J.predicted pattern mean.n.active.years.predicted/
+# mean.n.ratio.years.predicted already use (12b_'s own Section 6 comment).
+# This section bins those two columns with the SAME run_bh_bin_summary()
+# two-stage vessel-clustered helper Figure B itself uses (Section 2 above),
+# fed a different "gap" column each time, exactly the established idiom
+# Section 5's three diagnostics below already use, so the days/rate split
+# can never disagree with Figure B, or with each other, about which
+# vessel-window falls in which bin.
+#
+# Plotted TOGETHER (one figure, two colored series, mirroring 05b_'s own
+# figure4b_decomposition_path_rolling.png two-coefficient-series layout)
+# rather than as two separate PNGs, so a reader sees at a glance which
+# component is larger at each Phi level, without having to flip between
+# files. This is a comparison of the two SERIES to each other, not of
+# either series to Figure B's own y-axis value.
+gap_by_phi_bh_days.rolling <- fig_bh_binned.rolling %>%
+  mutate(gap = mean.abs.days.component) %>%
+  run_bh_bin_summary() %>%
+  mutate(component = "Days component")
+
+gap_by_phi_bh_rate.rolling <- fig_bh_binned.rolling %>%
+  mutate(gap = mean.abs.rate.component) %>%
+  run_bh_bin_summary() %>%
+  mutate(component = "Rate component")
+
+gap_components_by_phi.rolling <- bind_rows(gap_by_phi_bh_days.rolling, gap_by_phi_bh_rate.rolling)
+
+cat("\n===== Days-vs-rate MAD split by Phi bin =====\n")
+print(gap_components_by_phi.rolling %>% select(bin.label, component, n, n.vessels, mean.gap, se.gap))
+
+figure3d_gap_components.rolling <- gap_components_by_phi.rolling %>%
+  ggplot(aes(x = bin.label, y = mean.gap, color = component, group = component)) +
+  geom_point(size = 2.2, position = position_dodge(width = 0.3)) +
+  geom_errorbar(
+    aes(ymin = mean.gap - 1.96 * se.gap, ymax = mean.gap + 1.96 * se.gap),
+    width = 0.2, position = position_dodge(width = 0.3)
+  ) +
+  geom_line(
+    data = gap_components_by_phi.rolling %>% filter(!is.specialist.bin),
+    position = position_dodge(width = 0.3)
+  ) +
+  scale_color_manual(values = c("Days component" = "darkorange", "Rate component" = "steelblue")) +
+  labs(
+    title = "Per-fishery log-space days/rate deviation, by Phi bin (rolling)",
+    subtitle = paste0(
+      "NOT a decomposition of Figure B (different aggregation level and transform, see this script's ",
+      "header note), by reallocation intensity (Phi), single held-out year per window, two-stage ",
+      "vessel-clustered bin SEs, mean of |days.component| and |rate.component| across each vessel-",
+      "window's own J.predicted fisheries"
+    ),
+    x = "Reallocation intensity (Phi), specialists then increasing bins",
+    y = "Mean |component| (log points)", color = NULL
+  ) +
+  theme_minimal()
+
+ggsave(file.path(figure_dir, "figure3d_gap_components_by_phi_predicted_bh_effort_rolling.png"),
+       figure3d_gap_components.rolling, width = 7.5, height = 5, dpi = 300)
+
+cat("Wrote figure3d_gap_components_by_phi_predicted_bh_effort_rolling.png\n")
+
+# Specialist RELATIVE consistency check (not a falsification test), printed
+# as an explicit diagnostic (not just a figure), REWORDED per a
+# methodological review. A single-fishery (Phi = 0) vessel-window has
+# nothing to reallocate TOWARD, there is no second fishery whose share could
+# rise or fall, but that does NOT mean its days.component should be near
+# zero in absolute terms, days.component = log(actual.days) - log(avg.days)
+# measures pure SCALE variation in total effort (fishing more or fewer days
+# than its own historical average that year), which a specialist can do
+# just as much as a multi-fishery vessel, there is no structural reason for
+# it to vanish. The earlier version of this check claimed "expected near
+# zero" and framed a large specialist days component as evidence AGAINST
+# reading Figure B's gradient as reallocation-driven at all, both are
+# overstated, on real data a specialist's days component is likely to be
+# comparable to (not near zero relative to) its own rate component, and a
+# review of this check should not be read as falsifying anything either way.
+# The more defensible, RELATIVE comparison is instead specialist vs.
+# multi-fishery-bin AVERAGE, printed below for both components, a days
+# component that grows sharply from the specialist bin to the multi-fishery
+# bins (while the rate component stays comparatively flat) is CONSISTENT
+# WITH (not proof of) reallocation driving the multi-fishery gradient, and a
+# days component that does NOT grow at all across that same comparison
+# would undercut that reading, but neither direction is dispositive on its
+# own, printed here so the comparison itself is checkable once this script
+# is actually run against real data, not to assert a directional claim in
+# advance of that.
+specialist_days.rolling <- gap_by_phi_bh_days.rolling %>% filter(is.specialist.bin)
+specialist_rate.rolling <- gap_by_phi_bh_rate.rolling %>% filter(is.specialist.bin)
+multi_days_mean.rolling <- gap_by_phi_bh_days.rolling %>% filter(!is.specialist.bin) %>%
+  summarise(m = mean(mean.gap, na.rm = TRUE)) %>% pull(m)
+multi_rate_mean.rolling <- gap_by_phi_bh_rate.rolling %>% filter(!is.specialist.bin) %>%
+  summarise(m = mean(mean.gap, na.rm = TRUE)) %>% pull(m)
+
+cat("\n===== Specialist vs. multi-fishery-bin-average consistency check (Phi = 0 bin, RELATIVE comparison) =====\n")
+cat("Specialist mean |days.component| -",
+    if (nrow(specialist_days.rolling) > 0) round(specialist_days.rolling$mean.gap, 4) else NA_real_,
+    ", multi-fishery-bin average -", round(multi_days_mean.rolling, 4), ", ratio (specialist / multi-average) -",
+    round((if (nrow(specialist_days.rolling) > 0) specialist_days.rolling$mean.gap else NA_real_) /
+            multi_days_mean.rolling, 4), "\n")
+cat("Specialist mean |rate.component| -",
+    if (nrow(specialist_rate.rolling) > 0) round(specialist_rate.rolling$mean.gap, 4) else NA_real_,
+    ", multi-fishery-bin average -", round(multi_rate_mean.rolling, 4), ", ratio (specialist / multi-average) -",
+    round((if (nrow(specialist_rate.rolling) > 0) specialist_rate.rolling$mean.gap else NA_real_) /
+            multi_rate_mean.rolling, 4), "\n")
+cat("Reading rule, a days ratio well below the rate ratio (specialist relatively closer to the multi-fishery",
+    "average on rate than on days) is CONSISTENT WITH reallocation contributing to the multi-fishery",
+    "gradient, not proof of it, see this diagnostic's own comment above\n")
+
+# ============================================================================
+# 4c. Optional exact variance/covariance decomposition, DETAIL level,
+#     added per a methodological review (explicitly marked optional there,
+#     included since it is cheap and, unlike Figure D itself, genuinely
+#     exact)
+# ============================================================================
+#
+# Var(total.log.deviation) = Cov(total.log.deviation, days.component) +
+# Cov(total.log.deviation, rate.component) holds EXACTLY, row-wise, at the
+# DETAIL (Vessel.ADFG.Number x Fishery x window.start) grain, because
+# total.log.deviation = days.component + rate.component holds exactly at
+# that same grain (12b_'s own Section 5 identity), so
+# Cov(total, days) + Cov(total, rate) = Cov(days, days) + Cov(rate, days) +
+# Cov(days, rate) + Cov(rate, rate) = Var(days) + Var(rate) + 2 Cov(days, rate) =
+# Var(days + rate) = Var(total), pure algebra, no approximation. This is a
+# variance decomposition, not a MAD/mean-absolute-value one, so it does not
+# have Figure D's own additivity problem, printed here (console only, no
+# figure) BY Phi bin as an additional, genuinely-exact cross-check.
+if (!exists("predicted_bh_detail.rolling")) load(predicted_bh_path)
+
+detail_binned.rolling <- predicted_bh_detail.rolling %>%
+  filter(is.finite(days.component), is.finite(rate.component), is.finite(total.log.deviation)) %>%
+  inner_join(fig_bh_binned.rolling %>% select(Vessel.ADFG.Number, window.start, bin.order, bin.label),
+             by = c("Vessel.ADFG.Number", "window.start"))
+
+cat("\nDetail-level rows entering the exact variance/covariance decomposition -", nrow(detail_binned.rolling),
+    "(a subset of predicted_bh_detail.rolling restricted to rows with every log-decomposition component",
+    "defined AND whose vessel-window survived Section 1's own sample filter)\n")
+
+covariance_by_phi.rolling <- detail_binned.rolling %>%
+  group_by(bin.order, bin.label) %>%
+  summarise(
+    n            = n(),
+    var.total    = var(total.log.deviation),
+    cov.total.days = cov(total.log.deviation, days.component),
+    cov.total.rate = cov(total.log.deviation, rate.component),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    cov.sum.check   = cov.total.days + cov.total.rate,
+    identity.residual = var.total - cov.sum.check
+  ) %>%
+  arrange(bin.order)
+
+cat("\n===== Exact variance/covariance decomposition by Phi bin, Var(total) = Cov(total,days) + Cov(total,rate) =====\n")
+print(covariance_by_phi.rolling %>% select(bin.label, n, var.total, cov.total.days, cov.total.rate, identity.residual))
+cat("Max absolute identity residual across bins (should be ~0, floating-point epsilon) -",
+    round(max(abs(covariance_by_phi.rolling$identity.residual), na.rm = TRUE), 10),
+    " (na.rm = TRUE, a bin with only n = 1 detail rows has var()/cov() return NA by construction,",
+    "not a broken identity, that bin's own row is still printed above so it is not silently hidden)\n")
 
 # ============================================================================
 # 5. Three console-only diagnostics, not saved as figures
