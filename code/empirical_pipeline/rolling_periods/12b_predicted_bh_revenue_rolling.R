@@ -90,10 +90,15 @@
 # independently rather than share one cleaned copy).
 #
 # Saves predicted_bh_vessel_window.rolling (one row per Vessel.ADFG.Number x
-# window.start, the main deliverable) and predicted_bh_detail.rolling (one
-# row per Vessel.ADFG.Number x Fishery x window.start attempted, the
-# diagnostic detail table predicted_bh_vessel_window.rolling is aggregated
-# from) to intermediate data/ch3_predicted_bh.rdata.
+# window.start, the main deliverable, includes predicted.total,
+# actual.matching.total, actual.full.total, coverage, and the
+# mean.n.active.years.predicted/mean.n.ratio.years.predicted lookback-depth
+# diagnostics added per a methodological review of
+# 13b_predicted_bh_revenue_figures_rolling.R, see Section 6 below) and
+# predicted_bh_detail.rolling (one row per Vessel.ADFG.Number x Fishery x
+# window.start attempted, the diagnostic detail table
+# predicted_bh_vessel_window.rolling is aggregated from) to
+# intermediate data/ch3_predicted_bh.rdata.
 
 source("code/empirical_pipeline/00_setup.R")
 source("code/empirical_pipeline/rolling_periods/00b_rolling_periods.R")
@@ -563,6 +568,25 @@ print(funnel_bh.rolling)
 # sum()'s all-NA-input default of 0 whenever n.fisheries.predicted == 0, a
 # vessel-window with zero predicted fisheries has an UNDEFINED comparison,
 # not a $0 one.
+#
+# mean.n.active.years.predicted / mean.n.ratio.years.predicted, added per a
+# methodological review of 13b_predicted_bh_revenue_figures_rolling.R. A
+# simulation there held true predictability CONSTANT across Phi and varied
+# only lookback depth, and that alone produced a spurious Q8/Q1 gradient in
+# 13b_'s gap measure, because a high-reallocation (high-Phi) vessel
+# mechanically fishes any given fishery in fewer of the window's 5 lookback
+# years, so avg.days/vessel.ratio for that fishery rest on less data. Both
+# measures were already sitting in predicted_bh_detail.rolling
+# (n.active.years, n.ratio.years) and simply dropped at this aggregation
+# step, this carries their mean across J.predicted (the SAME set of
+# fisheries predicted.total/actual.matching.total are summed over, via the
+# identical if_else(!is.na(predicted.revenue), ..., NA) restriction) forward
+# so 13b_ can check directly whether its Phi gradient tracks reallocation or
+# tracks thinning history. mean, not min, chosen here, a mean reflects a
+# multi-fishery vessel-window's overall data richness across its predicted
+# portfolio, where a min would reduce to a single weakest-link fishery and
+# be noisier for exactly the wide-portfolio (high-Phi) vessel-windows this
+# diagnostic most needs to speak to.
 predicted_bh_vessel_window.rolling <- predicted_bh_detail.rolling %>%
   group_by(Vessel.ADFG.Number, window.start, window.end) %>%
   summarise(
@@ -571,6 +595,12 @@ predicted_bh_vessel_window.rolling <- predicted_bh_detail.rolling %>%
     predicted.total.raw       = sum(predicted.revenue, na.rm = TRUE),
     actual.matching.total.raw = sum(if_else(!is.na(predicted.revenue), actual.revenue, NA_real_), na.rm = TRUE),
     actual.full.total         = sum(actual.revenue, na.rm = TRUE),
+    mean.n.active.years.predicted.raw = mean(
+      if_else(!is.na(predicted.revenue), as.numeric(n.active.years), NA_real_), na.rm = TRUE
+    ),
+    mean.n.ratio.years.predicted.raw = mean(
+      if_else(!is.na(predicted.revenue), as.numeric(n.ratio.years), NA_real_), na.rm = TRUE
+    ),
     .groups = "drop"
   ) %>%
   mutate(
@@ -579,9 +609,12 @@ predicted_bh_vessel_window.rolling <- predicted_bh_detail.rolling %>%
     # actual.full.total > 0 always holds in practice (every row summed into
     # it is a "fished" row with revenue > 0 by vessel_fishery_year's own
     # definition), guarded anyway rather than assumed.
-    coverage              = if_else(actual.full.total > 0, actual.matching.total / actual.full.total, NA_real_)
+    coverage              = if_else(actual.full.total > 0, actual.matching.total / actual.full.total, NA_real_),
+    mean.n.active.years.predicted = if_else(n.fisheries.predicted > 0, mean.n.active.years.predicted.raw, NA_real_),
+    mean.n.ratio.years.predicted  = if_else(n.fisheries.predicted > 0, mean.n.ratio.years.predicted.raw, NA_real_)
   ) %>%
-  select(-predicted.total.raw, -actual.matching.total.raw)
+  select(-predicted.total.raw, -actual.matching.total.raw,
+         -mean.n.active.years.predicted.raw, -mean.n.ratio.years.predicted.raw)
 
 cat("\n===== predicted_bh_vessel_window.rolling summary =====\n")
 cat("Vessel-window rows -", nrow(predicted_bh_vessel_window.rolling), ", distinct vessels -",
@@ -592,6 +625,10 @@ cat("Vessel-windows with at least one predicted fishery -",
 cat("Mean coverage (actual.matching.total / actual.full.total) among vessel-windows with a defined value -",
     round(mean(predicted_bh_vessel_window.rolling$coverage, na.rm = TRUE), 4), ", median -",
     round(median(predicted_bh_vessel_window.rolling$coverage, na.rm = TRUE), 4), "\n")
+cat("Mean lookback depth across J.predicted, mean.n.active.years.predicted -",
+    round(mean(predicted_bh_vessel_window.rolling$mean.n.active.years.predicted, na.rm = TRUE), 3),
+    ", mean.n.ratio.years.predicted -",
+    round(mean(predicted_bh_vessel_window.rolling$mean.n.ratio.years.predicted, na.rm = TRUE), 3), "\n")
 cat("predicted.total and actual.matching.total/actual.full.total are on the SAME real, CPI-deflated",
     "dollar basis (base year MAX_YEAR), revenue.clean was deflated in Section 1 via the same",
     "load_deflator()/deflate() machinery vessel_fishery_year$revenue itself was deflated with in",

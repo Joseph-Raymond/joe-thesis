@@ -1,9 +1,9 @@
 # Chapter 3 empirical pipeline, rolling-window (vessel-period) master script
 #
 # Runs the rolling-window parallel analysis, 01b_build_rolling_panel.R
-# through 10b_network_similarity_rolling.R, in order. Mirrors run_all.R's own
-# structure exactly (source() with no local =, so every script shares one
-# global session and each wipes it at its own start via
+# through 13b_predicted_bh_revenue_figures_rolling.R, in order. Mirrors
+# run_all.R's own structure exactly (source() with no local =, so every
+# script shares one global session and each wipes it at its own start via
 # source("code/empirical_pipeline/00_setup.R")'s rm(list = ls())), see
 # design Section 8.1.
 #
@@ -29,6 +29,15 @@
 # out of order except for that one pair, this file keeps them in a single
 # fixed order regardless so that dependency is never left to chance.
 #
+# 12b_/13b_, the predicted buy-and-hold effort benchmark (no baseline
+# counterpart, rolling-window-only concept). 12b_ only needs 01b_'s own
+# saved objects (intermediate data/ch3_rolling.rdata) plus the baseline
+# panel, not anything from 05b_ through 10b_, and is placed at the end here
+# purely to avoid disturbing the previously-tested 01b_-10b_ order, not
+# because of any real dependency on those scripts. 13b_ must run after 12b_
+# (it reads intermediate data/ch3_predicted_bh.rdata, which only 12b_
+# builds).
+#
 # THIS CANNOT BE RUN LOCALLY, same as run_all.R, see 00_setup.R.
 
 source("code/empirical_pipeline/rolling_periods/01b_build_rolling_panel.R")
@@ -38,3 +47,5 @@ source("code/empirical_pipeline/rolling_periods/07b_behavioral_heterogeneity_rol
 source("code/empirical_pipeline/rolling_periods/08b_state_contingent_activation_rolling.R")
 source("code/empirical_pipeline/rolling_periods/09b_seasonal_overlap_rolling.R")
 source("code/empirical_pipeline/rolling_periods/10b_network_similarity_rolling.R")
+source("code/empirical_pipeline/rolling_periods/12b_predicted_bh_revenue_rolling.R")
+source("code/empirical_pipeline/rolling_periods/13b_predicted_bh_revenue_figures_rolling.R")
