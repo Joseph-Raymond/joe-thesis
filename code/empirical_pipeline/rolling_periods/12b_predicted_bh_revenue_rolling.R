@@ -40,9 +40,19 @@
 # 4-of-6 floor, built once in 01b_build_rolling_panel.R), via a single
 # semi_join at the target_fisheries.rolling step below. No competing
 # eligibility rule is built here, and ROLL_MIN_LOOKBACK_YEARS (3, the
-# 07b_/08b_ classifier floor) is deliberately NOT applied either, this
-# script's only lookback floor is n.active.years > 0 (any positive activity
-# at all counts, see Section 3).
+# 07b_/08b_ classifier floor) is deliberately NOT applied at THIS
+# (vessel-window ELIGIBILITY) level either, whether a vessel-fishery-window
+# is even attempted is governed solely by target_fisheries.rolling (fished
+# at window.end, plus the semi_join above), n.active.years > 0 (any positive
+# activity at all counts, see Section 3) is the lookback condition that
+# governs whether an attempted vessel-fishery-window yields a prediction at
+# all, not whether it is attempted in the first place. A separate,
+# PREDICTION-level floor
+# (BH_MIN_LOOKBACK_YEARS_FOR_PREDICTION, also 3, matching ROLL_MIN_LOOKBACK_YEARS's
+# precedent but a distinct local constant) is applied further downstream, at
+# predicted.revenue's own construction (Section 5), to n.ratio.years rather
+# than n.active.years, see that constant's own comment (Local constants,
+# below) and Section 5 for why.
 #
 # TWO DIFFERENT REVENUE SOURCES, used for two different purposes, on
 # purpose, not an inconsistency.
@@ -143,8 +153,28 @@ BH_MAX_TRIP_DURATION_DAYS <- 365
 # check rather than a flat "fishery-year needs >= 6 active vessels" filter.
 BH_MIN_OTHER_ACTIVE_VESSELS <- 5
 
+# Floor on n.ratio.years (Section 3), not n.active.years, applied at
+# predicted.revenue's construction (Section 5). Set to match this pipeline's
+# existing ROLL_MIN_LOOKBACK_YEARS = 3 (00b_rolling_periods.R), reused here
+# rather than inventing an unrelated number, since both constants answer the
+# same underlying question of how many years of lookback history are enough
+# to trust a lookback-based construction. n.ratio.years, not n.active.years,
+# is the relevant measure here because vessel.ratio itself (Section 3) is
+# averaged over exactly the n.ratio.years lookback years, and
+# predicted.revenue is directly proportional to vessel.ratio, making
+# n.ratio.years the more precision-relevant of the two lookback-depth
+# measures already computed in this script. It is also the BINDING
+# constraint of the two, since n.ratio.years <= n.active.years always (a
+# lookback year can only enter the ratio average once it has already
+# qualified as an active year, see Section 3), flooring n.ratio.years
+# automatically floors n.active.years and avg.days along with it, and makes
+# predicted.revenue > 0 structurally guaranteed rather than just
+# empirically true.
+BH_MIN_LOOKBACK_YEARS_FOR_PREDICTION <- 3
+
 cat("12b_predicted_bh_revenue_rolling.R loaded, BH_MAX_TRIP_DURATION_DAYS =",
-    BH_MAX_TRIP_DURATION_DAYS, ", BH_MIN_OTHER_ACTIVE_VESSELS =", BH_MIN_OTHER_ACTIVE_VESSELS, "\n")
+    BH_MAX_TRIP_DURATION_DAYS, ", BH_MIN_OTHER_ACTIVE_VESSELS =", BH_MIN_OTHER_ACTIVE_VESSELS,
+    ", BH_MIN_LOOKBACK_YEARS_FOR_PREDICTION =", BH_MIN_LOOKBACK_YEARS_FOR_PREDICTION, "\n")
 
 # ============================================================================
 # 1. Day construction, per vessel x Batch.Year x Fishery
@@ -419,10 +449,16 @@ avg_days_bh.rolling <- lookback_windows.rolling %>%
 # vessel.ratio, mean of (rev.per.day / fleet.rate.excl.i) ONLY across
 # qualifying lookback years where BOTH this script's own rev.per.day AND the
 # leave-one-out fleet rate are defined that year, the double inner_join +
-# filter below is what drops a qualifying year for either reason, exactly
-# the "lookback history but no valid ratio" case Section 5's funnel reports
-# on. This can and often will be a smaller set of years than avg.days above
-# draws on, the two are deliberately not forced onto the same subset.
+# filter below is what drops a qualifying year for either reason. With the
+# BH_MIN_LOOKBACK_YEARS_FOR_PREDICTION floor now in place (Section 5), a
+# dropped lookback year here surfaces in Section 5's funnel as one of TWO
+# possible outcomes depending on how many years survive the drop, "lookback
+# history but no valid ratio" if zero years survive (has.valid.ratio fails),
+# or "valid ratio but lookback too thin (< BH_MIN_LOOKBACK_YEARS_FOR_PREDICTION
+# years)" if 1 or 2 years survive, enough for a ratio to exist but short of
+# the floor (has.sufficient.lookback fails). This can and often will be a
+# smaller set of years than avg.days above draws on, the two are
+# deliberately not forced onto the same subset.
 lookback_ratio_input.rolling <- lookback_windows.rolling %>%
   select(Vessel.ADFG.Number, Fishery, window.start, Batch.Year) %>%
   inner_join(vessel_fishery_year_bh.rolling %>% select(Vessel.ADFG.Number, Batch.Year, Fishery, rev.per.day),
@@ -505,43 +541,67 @@ cat("Vessel x fishery x window candidates attempted (fished at window.end, eligi
     "total eligible vessel-windows (the gap is eligible vessel-windows with zero fisheries fished",
     "specifically in window.end, the 4-of-6 floor does not require the 6th year itself to be active)\n")
 
-# predicted.revenue absent (not zero) whenever any of the three GATING
-# conditions (has.lookback.history, has.valid.ratio, has.target.fleet.rate)
-# fail, matching the spec's three-way "no prediction" logic exactly. The
-# funnel below splits into FOUR reason labels, not three, has.target.fleet.rate
-# failing is further broken out by vessel.active.at.target (see that
-# mutate() below), so a reader can tell a vessel-side cause from a fleet-side
-# one. A candidate can fail more than one condition at once, it is
-# attributed to whichever comes first in the case_when() priority order.
+# predicted.revenue absent (not zero) whenever any of the four GATING
+# conditions (has.lookback.history, has.valid.ratio, has.sufficient.lookback,
+# has.target.fleet.rate) fail. has.sufficient.lookback added per a
+# methodological review of real-data output, a small number of vessel-
+# fishery-window predictions built from only 1-2 lookback years (n.ratio.years
+# below BH_MIN_LOOKBACK_YEARS_FOR_PREDICTION) were numerically unstable and
+# dominating 13b_'s high-Phi bin means, an artifact of thin history rather
+# than evidence about reallocation behavior. The funnel below splits into
+# FIVE reason labels, not four, has.target.fleet.rate failing is further
+# broken out by vessel.active.at.target (see that mutate() below), so a
+# reader can tell a vessel-side cause from a fleet-side one. A candidate can
+# fail more than one condition at once, it is attributed to whichever comes
+# first in the case_when() priority order.
 predicted_bh_detail.rolling <- target_fisheries.rolling %>%
   left_join(vessel_lookback_bh.rolling, by = c("Vessel.ADFG.Number", "Fishery", "window.start")) %>%
   mutate(n.active.years = replace_na(n.active.years, 0L)) %>%
   left_join(fleet_rate_at_target.rolling, by = c("Vessel.ADFG.Number", "Fishery", "window.start")) %>%
   mutate(
-    has.lookback.history    = n.active.years > 0,
-    has.valid.ratio         = is.finite(vessel.ratio),
+    has.lookback.history     = n.active.years > 0,
+    has.valid.ratio          = is.finite(vessel.ratio),
+    # Guarded against NA the same way has.valid.ratio is (is.finite() is
+    # itself FALSE on NA, !is.na() here is spelled out for readability since
+    # n.ratio.years is an integer count, not the ratio itself). n.ratio.years
+    # is NA exactly when has.valid.ratio is already FALSE (no lookback year
+    # cleared BOTH of Section 3's own joins), so those rows are already
+    # caught by the !has.valid.ratio branch below and never reach this one,
+    # has.sufficient.lookback only ends up deciding the outcome for rows
+    # where a valid ratio exists but was averaged over too few years (1 or 2,
+    # below BH_MIN_LOOKBACK_YEARS_FOR_PREDICTION).
+    has.sufficient.lookback  = !is.na(n.ratio.years) & n.ratio.years >= BH_MIN_LOOKBACK_YEARS_FOR_PREDICTION,
     # TRUE only if the vessel has a row in fleet_rate_at_target.rolling at
     # all, i.e. it was itself "active" (Section 2's definition) at
     # window.end in this fishery, distinct from has.target.fleet.rate below,
     # which additionally requires >= BH_MIN_OTHER_ACTIVE_VESSELS others.
-    vessel.active.at.target = !is.na(n.other.active.target),
-    has.target.fleet.rate   = is.finite(fleet.rate.excl.i.target),
+    vessel.active.at.target  = !is.na(n.other.active.target),
+    has.target.fleet.rate    = is.finite(fleet.rate.excl.i.target),
     predicted.revenue = if_else(
-      has.lookback.history & has.valid.ratio & has.target.fleet.rate,
+      has.lookback.history & has.valid.ratio & has.sufficient.lookback & has.target.fleet.rate,
       avg.days * fleet.rate.excl.i.target * vessel.ratio,
       NA_real_
     ),
-    # Four mutually exclusive reasons now, not three. "No year-6 fleet rate"
-    # used to conflate two different causes a reader would act on
-    # differently, the vessel's OWN inactivity at window.end versus the
-    # FLEET being too thin around an otherwise-active vessel, split apart
-    # per the methodological review.
+    # Five mutually exclusive reasons now, not four. has.sufficient.lookback
+    # is checked immediately after has.valid.ratio (before either of the
+    # target-year checks), it is a refinement of "does this vessel-fishery-
+    # window have a usable ratio at all," so once a valid ratio is confirmed
+    # the next question is whether it rests on enough years, before moving on
+    # to window.end/fleet-side causes. A row with NO valid ratio at all
+    # (n.ratio.years == NA, has.valid.ratio already FALSE) is attributed to
+    # "no valid ratio," not to this new branch, so the two checks never
+    # compete for the same row, see has.sufficient.lookback's own comment
+    # above. "No year-6 fleet rate" used to conflate two different causes a
+    # reader would act on differently, the vessel's OWN inactivity at
+    # window.end versus the FLEET being too thin around an otherwise-active
+    # vessel, split apart per the methodological review.
     reason.no.prediction = case_when(
-      !is.na(predicted.revenue) ~ NA_character_,
-      !has.lookback.history     ~ "no lookback history",
-      !has.valid.ratio          ~ "lookback history but no valid ratio",
-      !vessel.active.at.target  ~ "valid ratio but vessel has no clean window-end days/revenue in this fishery",
-      !has.target.fleet.rate    ~ "valid ratio but fewer than 5 other active vessels at window-end",
+      !is.na(predicted.revenue)  ~ NA_character_,
+      !has.lookback.history      ~ "no lookback history",
+      !has.valid.ratio           ~ "lookback history but no valid ratio",
+      !has.sufficient.lookback   ~ "valid ratio but lookback too thin (< BH_MIN_LOOKBACK_YEARS_FOR_PREDICTION years)",
+      !vessel.active.at.target   ~ "valid ratio but vessel has no clean window-end days/revenue in this fishery",
+      !has.target.fleet.rate     ~ "valid ratio but fewer than BH_MIN_OTHER_ACTIVE_VESSELS other active vessels at window-end",
       TRUE ~ NA_character_
     )
   )

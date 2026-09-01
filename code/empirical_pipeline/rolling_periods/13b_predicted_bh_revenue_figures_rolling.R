@@ -26,8 +26,15 @@
 # 12b_ was extended (its own Section 6) to carry mean.n.active.years.predicted
 # and mean.n.ratio.years.predicted forward for exactly this reason, and
 # Section 5 below adds a third bin diagnostic reporting them per Phi bin,
-# alongside coverage, so this confound is checkable rather than hidden. This
-# does not mean Figure B is wrong, it means the confound is now visible.
+# alongside coverage, so this confound is checkable rather than hidden. 12b_
+# has since also been floored on the numerator side, predicted.revenue's own
+# construction (12b_'s Section 5) now requires n.ratio.years >=
+# BH_MIN_LOOKBACK_YEARS_FOR_PREDICTION (3), so Figure B's sample and all
+# three Section 5 diagnostics below are already restricted throughout to
+# predictions resting on at least 3 lookback years of valid vessel-to-fleet
+# ratio, not just left for the reader to notice after the fact. This does
+# not mean Figure B is wrong, it means the confound is now visible, and
+# partly addressed at the source.
 #
 # Reads intermediate data/ch3_rolling.rdata (vessel_window_summary.rolling,
 # for Phi and is.specialist.window, and passive_benchmark_window.rolling,
@@ -225,6 +232,7 @@ figure3_predicted_bh_effort.rolling <- fig_a_data.rolling %>%
     title = "Predicted vs actual revenue, single held-out year, effort-based buy-and-hold benchmark (rolling)",
     subtitle = paste0(
       "Multi-fishery vessel-windows, dollars for the window's 6th (held-out) year only, ",
+      "predictions require at least 3 lookback years of valid vessel-to-fleet ratio, ",
       "NOT a coefficient of variation, log-log axes, faceted by Phi quartile"
     ),
     x = "Predicted revenue, window's 6th year (fixed effort x fleet leave-one-out rate x vessel ratio), log scale",
@@ -281,7 +289,8 @@ figure3b_predicted_bh_effort.rolling <- gap_by_phi_bh.rolling %>%
     title = "Absolute relative deviation from the effort-based buy-and-hold benchmark (rolling)",
     subtitle = paste0(
       "By reallocation intensity (Phi), single held-out year per window, two-stage vessel-clustered bin SEs, ",
-      "NOT a CV difference, see this script's header note, and see diagnostic 3 (console) for a lookback-",
+      "predictions require at least 3 lookback years of valid vessel-to-fleet ratio, NOT a CV difference, ",
+      "see this script's header note, and see diagnostic 3 (console) for a lookback-",
       "depth confound check before reading this gradient as pure reallocation"
     ),
     x = "Reallocation intensity (Phi), specialists then increasing bins",
@@ -327,6 +336,24 @@ gap_by_phi_bh_coverage.rolling <- fig_bh_binned.rolling %>%
 cat("\n===== Diagnostic 2, mean coverage per bin (checking coverage is not confounded with Phi) =====\n")
 print(gap_by_phi_bh_coverage.rolling)
 
+# NOTE, added once 12b_'s BH_MIN_LOOKBACK_YEARS_FOR_PREDICTION floor was in
+# place. The floor does not remove the Phi confound, it converts part of it
+# into a SELECTION effect on coverage instead, thin-history fishery legs are
+# mechanically more common for high-Phi vessels (the same mechanism behind
+# Diagnostic 3), so the floor now drops those fishery predictions
+# non-randomly across Phi bins. That has two consequences worth reading this
+# diagnostic for, (a) it mechanically lowers coverage more in high-Phi bins
+# than low-Phi bins, since a high-Phi vessel-window is more likely to lose
+# one of its fisheries to the floor, and (b) it can drop a vessel-window out
+# of the Figure B / diagnostic sample entirely if the floor removed its only
+# predicted fishery, shrinking n.vessels in a bin rather than just lowering
+# coverage within it. Diagnostic 2 here is the check for this residual,
+# floor-induced selection effect on coverage, a distinct question from
+# Diagnostic 3 just below, which checks whether the numerator-side
+# (predicted.revenue precision) problem the floor was added to fix is
+# actually addressed, not whether the floor introduced a new coverage-side
+# selection effect of its own.
+
 # (3) NEW, mean lookback depth per bin, the direct check for the confound a
 # methodological review's simulation identified, true predictability held
 # CONSTANT across Phi while only lookback depth varied still produced a
@@ -337,11 +364,17 @@ print(gap_by_phi_bh_coverage.rolling)
 # picking just one, mean.n.active.years.predicted (the broader "any positive
 # year" floor avg.days is built from) and mean.n.ratio.years.predicted (the
 # stricter floor vessel.ratio, the more precision-sensitive multiplicative
-# term, is built from). If either declines sharply across Phi bins here,
-# Figure B's gradient should be read as at least partly a precision
-# artifact, not purely a reallocation effect, until this is addressed
-# further (e.g. restricting to a minimum lookback-years floor and
-# rechecking Figure B).
+# term, is built from). 12b_ now floors predicted.revenue's own construction
+# on n.ratio.years >= BH_MIN_LOOKBACK_YEARS_FOR_PREDICTION, so the numbers
+# printed below already reflect that fix, they are the POST-floor
+# lookback-depth distribution among surviving predictions, not the
+# pre-floor distribution that originally exposed the problem. The reading
+# rule below survives the fix and still matters, if either measure STILL
+# declines sharply across Phi bins here despite the floor, that remains a
+# live warning sign, it would mean the floor's fixed lower bound is not
+# enough to equalize lookback depth across bins, and Figure B's gradient
+# should still be read as at least partly a precision artifact, not purely
+# a reallocation effect.
 gap_by_phi_bh_lookback_active.rolling <- fig_bh_binned.rolling %>%
   mutate(gap = mean.n.active.years.predicted) %>%
   run_bh_bin_summary() %>%
@@ -359,3 +392,22 @@ gap_by_phi_bh_lookback.rolling <- gap_by_phi_bh_lookback_active.rolling %>%
 cat("\n===== Diagnostic 3, mean lookback depth per bin (checking Figure B's gradient against the",
     "thinning-history confound, not just reallocation intensity) =====\n")
 print(gap_by_phi_bh_lookback.rolling)
+
+# NOTE, added per a methodological review of real-data output that used this
+# very diagnostic to catch the thinning-history problem in the first place
+# (a handful of vessel-fishery-window predictions built from only 1-2
+# lookback years were numerically unstable and were dominating the high-Phi
+# bin means in an earlier run of Figure B). 12b_ was fixed in response, it
+# now floors predicted.revenue's construction on n.ratio.years >=
+# BH_MIN_LOOKBACK_YEARS_FOR_PREDICTION (see 12b_predicted_bh_revenue_rolling.R's
+# own local constants), so every row this diagnostic now averages over
+# already cleared that floor. The numbers printed just above are therefore
+# the POST-floor lookback-depth distribution among surviving predictions,
+# not the pre-floor distribution that originally exposed the problem, a
+# reader should not mistake a now-healthier-looking Diagnostic 3 for evidence
+# the underlying data were never thin, it is evidence the floor is doing its
+# job of excluding the thin cases.
+cat("\nNote, Diagnostic 3 above reflects predictions that already cleared 12b_'s",
+    "BH_MIN_LOOKBACK_YEARS_FOR_PREDICTION floor on n.ratio.years, this is the POST-floor lookback-depth",
+    "distribution among surviving predictions, not the pre-floor distribution that originally",
+    "diagnosed the thinning-history problem this floor was added to fix\n")
