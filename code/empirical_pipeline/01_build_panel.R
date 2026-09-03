@@ -37,12 +37,21 @@
 #                                                     File.Number (owner) level,
 #                                                     owner_summary carries
 #                                                     prime.fishery the same
-#                                                     way vessel_summary does
+#                                                     way vessel_summary does,
+#                                                     owner_year carries hhi
+#                                                     the same way vessel_year
+#                                                     does (used by
+#                                                     01b_build_rolling_panel_owner.R's
+#                                                     own self-consistency check)
 #   owner_mean_share       owner-level mirror of vessel_mean_share, one row
 #                          per File.Number x fishery, share averaged over the
 #                          owner's active years, reused by
 #                          05_table4_figure3_owner.R as the owner-level
 #                          passive buy-and-hold benchmark's portfolio weights
+#   owner_share_panel      owner-level mirror of vessel_share_panel, needed
+#                          standalone (not just collapsed into owner_summary)
+#                          by 01b_build_rolling_panel_owner.R the same way
+#                          01b_build_rolling_panel.R needs vessel_share_panel
 #   owner_period_summary  owner-level analogue of vessel_period_summary
 #   period_bounds          the two period breakpoints actually used, computed
 #                          once from the observed year range, not hardcoded
@@ -697,6 +706,13 @@ owner_year <- owner_fishery_year %>%
     n.unfished.fishery.matched = sum(held & held.vessel.matched & !fished),
     forgone.value.matched      = sum(replace_na(fleet_mean_revenue[held & held.vessel.matched & !fished], 0)),
     owner.year.rev     = sum(revenue, na.rm = TRUE),
+    # Owner-level mirror of vessel_year's own hhi column (Section 5, same
+    # formula), added purely so 01b_build_rolling_panel_owner.R can run the
+    # identical hhi_year.rolling-vs-hhi self-consistency check 01b_ already
+    # runs at the vessel level, rather than skipping it for owners for lack
+    # of a comparison column. Purely additive, does not touch any other
+    # column's formula or values above.
+    hhi                = sum((revenue[fished] / sum(revenue[fished]))^2, na.rm = TRUE),
     .groups = "drop"
   ) %>%
   mutate(
@@ -836,7 +852,7 @@ cat("owner_period_summary rows:", nrow(owner_period_summary),
 save(
   vessel_fishery_year, vessel_year, vessel_summary, vessel_mean_share, vessel_share_panel,
   vessel_period_summary,
-  owner_fishery_year, owner_year, owner_summary, owner_mean_share,
+  owner_fishery_year, owner_year, owner_summary, owner_mean_share, owner_share_panel,
   owner_period_summary,
   period_bounds,
   match_diag, fleet_mean_revenue, fleet_mean_revenue_owner,

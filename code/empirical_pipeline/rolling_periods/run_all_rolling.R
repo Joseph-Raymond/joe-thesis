@@ -52,6 +52,19 @@
 # for its own tau-quartile external validation check, built by 06b_, already
 # guaranteed to have run by this point in the fixed order below).
 #
+# 01b_owner/05b_owner, the owner-level (File.Number = permit holder) twin of
+# 01b_build_rolling_panel.R/05b_table4_figure3_rolling.R, the rolling-window
+# analogue of the baseline 05_table4_figure3_owner.R. Placed at the end for
+# the identical reasoning 12b_/13b_ above are, 01b_build_rolling_panel_owner.R
+# needs only intermediate data/ch3_panel.rdata (specifically owner_year,
+# owner_share_panel, owner_mean_share, owner_summary, owner_fishery_year,
+# fleet_mean_revenue_owner, all built by 01_build_panel.R), not anything from
+# 05b_ through 13c_, and 05b_table4_figure3_rolling_owner.R needs only
+# 01b_build_rolling_panel_owner.R's own intermediate
+# data/ch3_rolling_owner.rdata, so this pair could in principle run
+# immediately after 01_build_panel.R, appended here purely to avoid
+# disturbing the previously-tested 01b_ through 13c_ order.
+#
 # THIS CANNOT BE RUN LOCALLY, same as run_all.R, see 00_setup.R.
 
 source("code/empirical_pipeline/rolling_periods/01b_build_rolling_panel.R")
@@ -65,3 +78,5 @@ source("code/empirical_pipeline/rolling_periods/12b_predicted_bh_revenue_rolling
 source("code/empirical_pipeline/rolling_periods/13b_predicted_bh_revenue_figures_rolling.R")
 source("code/empirical_pipeline/rolling_periods/12c_predicted_bh_phi_rolling.R")
 source("code/empirical_pipeline/rolling_periods/13c_predicted_bh_phi_figures_rolling.R")
+source("code/empirical_pipeline/rolling_periods/01b_build_rolling_panel_owner.R")
+source("code/empirical_pipeline/rolling_periods/05b_table4_figure3_rolling_owner.R")
