@@ -241,9 +241,15 @@ scratch, it can load that file directly.
   no vessel-period unit to change.
 - **Tables 1, 2, and 3, rolling versions.** Out of scope, already at
   vessel-year or owner-year grain, nothing to localize to a window.
-- **Any owner-level rolling object.** Nothing from Table 4 onward reads
-  `owner_summary` or `owner_period_summary` in either the baseline or the
-  rolling pipeline.
+- **Any owner-level ROLLING object.** `05_table4_figure3_owner.R` (baseline
+  pipeline) now reads `owner_summary` and `owner_mean_share` for its own
+  owner-level Table 4/Figure 3 cut, so "nothing reads `owner_summary`" is no
+  longer true fleet-wide, that statement predates this addition. What is
+  still true, and is the actual scope boundary here, is that nothing in the
+  ROLLING pipeline reads `owner_summary`/`owner_period_summary`, and no
+  rolling-window owner-level analogue of `vessel_window_summary.rolling`
+  exists, rolling this forward the way `01b_` rolled the vessel-level panel
+  is left for a follow-up pass.
 - **26 rolling seasonal-overlap matrices.** A fishery's season is treated as
   a fixed calendar characteristic on purpose (design Section 3.7), pooled
   fleet-wide across all years specifically so no single vessel's own timing

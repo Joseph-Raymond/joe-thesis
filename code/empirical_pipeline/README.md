@@ -105,6 +105,7 @@ existing code).
 03_figure1_figure2.R              # Figure 1, Figure 2 (needs the CFEC vessel register, see below)
 04_table3.R                       # Table 3
 05_table4_figure3.R               # Table 4, Figure 3, Figure 3 appendix (specialists)
+05_table4_figure3_owner.R          # Owner-level (File.Number = permit holder) twin of the above
 06_within_season_reallocation.R   # Figure 5 (+ pseudo-log version), Figure 6, Table 6
 07_behavioral_heterogeneity.R     # Table 7, Table 8, Figure 8, Figure 9 (appendix)
 08_state_contingent_activation.R  # Table 10, Figure 10, Table 11

@@ -34,11 +34,25 @@
 #                          default 3), H_bar/H_LR/Phi/rev.cv computed within
 #                          each period rather than over the whole panel
 #   owner_fishery_year, owner_year, owner_summary   same three at the
-#                                                     File.Number (owner) level
+#                                                     File.Number (owner) level,
+#                                                     owner_summary carries
+#                                                     prime.fishery the same
+#                                                     way vessel_summary does
+#   owner_mean_share       owner-level mirror of vessel_mean_share, one row
+#                          per File.Number x fishery, share averaged over the
+#                          owner's active years, reused by
+#                          05_table4_figure3_owner.R as the owner-level
+#                          passive buy-and-hold benchmark's portfolio weights
 #   owner_period_summary  owner-level analogue of vessel_period_summary
 #   period_bounds          the two period breakpoints actually used, computed
 #                          once from the observed year range, not hardcoded
 #   match_diag             data-quality diagnostics for Table 2
+#   fleet_mean_revenue_owner   owner-level mirror of fleet_mean_revenue, one
+#                          row per Batch.Year x fishery, mean revenue among
+#                          fished owners that fishery-year, needed standalone
+#                          (not just embedded as a column inside
+#                          owner_fishery_year) for the same passive-benchmark
+#                          join 05_table4_figure3_owner.R performs
 #
 # Run 00_setup.R first (or just source it, which this script does).
 
@@ -715,9 +729,24 @@ owner_share_panel <- owner_share_raw %>%
   ungroup() %>%
   semi_join(active_owner_years, by = c("File.Number", "Batch.Year"))
 
-owner_summary <- owner_share_panel %>%
+# Per owner-fishery long-run mean share, s_bar_ij. Pulled out into its own
+# saved object here rather than built via an inline mutate() inside
+# owner_summary's own pipe (the way this used to be constructed), purely so
+# this mirrors vessel_mean_share exactly, INCLUDING being available on its
+# own for 05_table4_figure3_owner.R to reuse as the owner-level passive
+# buy-and-hold benchmark's portfolio weights, the same role vessel_mean_share
+# plays for 05_table4_figure3.R (see Section 6's comment on vessel_mean_share
+# for why that has to be a standalone object rather than an inline mutate()
+# too). Numerically identical to the old inline version either way, a
+# left_join of a (File.Number, Fishery) mean back onto its own group is the
+# same value as computing that mean inline within the same grouping, only
+# the construction path changes.
+owner_mean_share <- owner_share_panel %>%
   group_by(File.Number, Fishery) %>%
-  mutate(mean.share.fishery = mean(share)) %>%
+  summarise(mean.share.fishery = mean(share), .groups = "drop")
+
+owner_summary <- owner_share_panel %>%
+  left_join(owner_mean_share, by = c("File.Number", "Fishery")) %>%
   group_by(File.Number) %>%
   summarise(
     n.years = n_distinct(Batch.Year),
@@ -733,7 +762,27 @@ owner_summary <- owner_share_panel %>%
       group_by(File.Number) %>%
       summarise(rev.cv = sd(owner.year.rev) / mean(owner.year.rev), .groups = "drop"),
     by = "File.Number"
-  ) %>%
+  )
+
+# prime.fishery = the fishery with the most total realized revenue across
+# the owner's whole panel, the exact owner-level mirror of vessel_summary's
+# own prime_fishery construction in Section 6 (ranked on summed revenue
+# directly, not shares, for the same reason given there). Named
+# prime_fishery_owner, not prime_fishery, so it does not collide with the
+# vessel-level object of the same underlying idea already in scope earlier
+# in this same script run. Needed as the fixed effect in
+# 05_table4_figure3_owner.R's Table 4 regression, exactly the role
+# prime.fishery plays for vessels there.
+prime_fishery_owner <- owner_fishery_year %>%
+  filter(fished) %>%
+  group_by(File.Number, Fishery) %>%
+  summarise(total.rev = sum(revenue), .groups = "drop") %>%
+  group_by(File.Number) %>%
+  slice_max(total.rev, n = 1, with_ties = FALSE) %>%
+  select(File.Number, prime.fishery = Fishery)
+
+owner_summary <- owner_summary %>%
+  left_join(prime_fishery_owner, by = "File.Number") %>%
   mutate(meets.min.years = n.years >= MIN_ACTIVE_YEARS)
 
 cat("owner_summary rows:", nrow(owner_summary),
@@ -787,10 +836,10 @@ cat("owner_period_summary rows:", nrow(owner_period_summary),
 save(
   vessel_fishery_year, vessel_year, vessel_summary, vessel_mean_share, vessel_share_panel,
   vessel_period_summary,
-  owner_fishery_year, owner_year, owner_summary,
+  owner_fishery_year, owner_year, owner_summary, owner_mean_share,
   owner_period_summary,
   period_bounds,
-  match_diag, fleet_mean_revenue,
+  match_diag, fleet_mean_revenue, fleet_mean_revenue_owner,
   MAX_YEAR,
   file = panel_path
 )

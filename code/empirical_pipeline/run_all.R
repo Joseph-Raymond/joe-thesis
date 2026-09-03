@@ -7,6 +7,12 @@
 # is numbered last for convenience only, its real dependencies are 01_ and
 # 06_, not 07 through 10, see its own header.
 #
+# 05_table4_figure3_owner.R is the owner-level (File.Number = permit holder)
+# twin of 05_table4_figure3.R, run immediately after it since both read the
+# same intermediate data/ch3_panel.rdata and neither depends on anything
+# from 06_ onward. See its own header for why "owner" means permit holder,
+# not vessel owner.
+#
 # THIS CANNOT BE RUN LOCALLY, same as every other script in this folder, see
 # 00_setup.R.
 
@@ -15,6 +21,7 @@ source("code/empirical_pipeline/02_table1_table2.R")
 source("code/empirical_pipeline/03_figure1_figure2.R")
 source("code/empirical_pipeline/04_table3.R")
 source("code/empirical_pipeline/05_table4_figure3.R")
+source("code/empirical_pipeline/05_table4_figure3_owner.R")
 source("code/empirical_pipeline/06_within_season_reallocation.R")
 source("code/empirical_pipeline/07_behavioral_heterogeneity.R")
 source("code/empirical_pipeline/08_state_contingent_activation.R")
