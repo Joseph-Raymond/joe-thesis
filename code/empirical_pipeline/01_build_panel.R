@@ -90,6 +90,93 @@ permit_register_raw <- permit_clean %>%
   ) %>%
   filter(Batch.Year >= MIN_YEAR, Fishery != "")
 
+# Permit.Status diagnostic and cancelled-permit exclusion. chapter3_plan.md
+# Section 1's data dictionary documents Permit.Status ("Current Owner" is
+# the filter it calls for), but no script in this pipeline had ever actually
+# applied it, permit_register_raw was carrying every status value straight
+# through untouched. A cancelled permit is not a real held opportunity, it
+# is a register row for access that no longer exists, so counting it toward
+# n.held.fishery would inflate both the held side of the wedge and the
+# unused share built from it, in the direction that makes the chapter's own
+# headline number look bigger than it should. Column existence is checked
+# rather than assumed, since it has not been directly confirmed against the
+# server's copy of permit_clean.rdata from inside this script before now.
+if ("Permit.Status" %in% names(permit_register_raw)) {
+  cat("\n===== Permit.Status distribution, permit register rows before any status filter =====\n")
+  print(permit_register_raw %>% count(Permit.Status, sort = TRUE))
+
+  # Matched with grepl("cancel", ..., ignore.case = TRUE) rather than an
+  # exact string match, since direct inspection of the server copy found
+  # "permit cancelled" but the precise capitalization is not treated as a
+  # stable constant here. CHECK the printed distribution above the first
+  # time this runs, tighten or loosen the pattern if it does not cleanly
+  # separate cancelled rows from every active status value.
+  permit_register_raw <- permit_register_raw %>%
+    mutate(is.cancelled = !is.na(Permit.Status) & grepl("cancel", Permit.Status, ignore.case = TRUE))
+
+  cat("Permit register rows flagged cancelled (excluded from held):",
+      sum(permit_register_raw$is.cancelled), "of", nrow(permit_register_raw),
+      "(", round(100 * mean(permit_register_raw$is.cancelled), 2), "% )\n")
+
+  permit_register_raw <- permit_register_raw %>% filter(!is.cancelled) %>% select(-is.cancelled)
+} else {
+  warning("Permit.Status column not found on permit_register_raw, cancelled permits are NOT being ",
+          "excluded from the held set. chapter3_plan.md documents this column, CHECK the real column ",
+          "name against the server copy of permit_clean.rdata and update Section 1 of this script.")
+}
+
+# Permit.Type distribution, reported as a diagnostic rather than folded into
+# a transferable/non-transferable filter or column. Permanent and
+# interim-use permits are generally transferable on the open market under
+# AS 16.43.170, moratorium and vessel-moratorium permits are generally far
+# more restricted (often tied to the vessel itself or to narrow hardship or
+# family transfers only), but the exact rule for every Permit.Type value
+# actually present in this register has not been verified against CFEC's
+# own regulations or program documentation from inside this script, so
+# nothing downstream should assert a transferable/non-transferable split
+# from this print alone without that check.
+if ("Permit.Type" %in% names(permit_register_raw)) {
+  cat("\n===== Permit.Type distribution, permit register rows (transferability varies by type, not classified here) =====\n")
+  print(permit_register_raw %>% count(Permit.Type, sort = TRUE))
+} else {
+  warning("Permit.Type column not found on permit_register_raw, no transferability breakdown printed. ",
+          "CHECK the real column name against the server copy of permit_clean.rdata.")
+}
+
+# Within-year resale diagnostic. The register can carry more than one row
+# for the same permit in the same year when it changes hands mid-year
+# (chapter3_plan.md's data dictionary lists Permit.Sequence for exactly this
+# reason, and the old exploratory permit_link.R collapses on
+# max(Permit.Sequence) for the same reason, see its lines 60-64). This
+# script does NOT use Permit.Sequence anywhere, on purpose rather than by
+# oversight, held_vessel_fishery (Section 2b), held_owner_fishery (Section
+# 7), and the permit-serial-level counts (n.held.permit, both grains)
+# already collapse through distinct()/group_by()+summarise() on the vessel
+# or owner dimension, so a permit resold three times within a year still
+# only counts once toward n.held.fishery for whichever vessel or owner held
+# it. What is NOT protected this way is any diagnostic built directly off
+# nrow(permit_register_raw), the raw row count Table 2 reports and the
+# missing-vessel-ID share computed from it, since those count every
+# transaction record literally. This block exists to size that gap, not
+# because the held-set logic itself needs Permit.Sequence.
+if ("Permit.Sequence" %in% names(permit_register_raw)) {
+  resale_diag <- permit_register_raw %>%
+    group_by(Batch.Year, CFEC.Permit.Serial.Number) %>%
+    summarise(n.rows = n(), n.distinct.owners = n_distinct(File.Number), .groups = "drop")
+  cat("\n===== Within-year permit resale diagnostic (Permit.Sequence) =====\n")
+  cat("Permit x year cells with more than one register row:", sum(resale_diag$n.rows > 1),
+      "of", nrow(resale_diag), "(", round(100 * mean(resale_diag$n.rows > 1), 2), "% )\n")
+  cat("Of those, cells where the extra rows reflect a genuine change of owner",
+      "(n.distinct.owners > 1, i.e. an actual resale rather than a same-owner re-issue):",
+      sum(resale_diag$n.rows > 1 & resale_diag$n.distinct.owners > 1), "\n")
+  cat("Raw permit register rows:", nrow(permit_register_raw), " vs distinct (Batch.Year, CFEC.Permit.Serial.Number) permit-years:",
+      nrow(resale_diag), ", the gap is what a raw-row-count diagnostic (Table 2) inherits from resale multiplicity\n")
+} else {
+  warning("Permit.Sequence column not found on permit_register_raw, cannot size how much of the raw ",
+          "row count reflects within-year permit resale rather than one row per permit-year. ",
+          "CHECK the real column name against the server copy of permit_clean.rdata.")
+}
+
 # has.vessel.id is FALSE for a permit register row with no vessel attached
 # (NA, 0, or 99999) or an owner-only holding. permit_link.R drops these
 # outright. Kept here because Table 3 (04_table3.R) needs both versions and
@@ -145,6 +232,28 @@ catch_data_temp <- catch_data_temp %>%
   filter(Batch.Year >= MIN_YEAR) %>%
   mutate(Fishery = strip_fishery_space(CFEC.Permit.Fishery)) %>%
   filter(Fishery != "")
+
+# Residency diagnostic, reported here rather than in Section 1 because
+# chapter3_plan.md's own data dictionary lists CFEC.Permit.Holder.Residency
+# as a FISH TICKET column, not a permit register column (Section 1's own
+# register dictionary lists Zip.Code/city/state but no residency field as
+# such). So residency is only observable for a permit-owner-year that
+# generated at least one ticket, not for the held side directly, unlike
+# Permit.Status/Permit.Type this is a diagnostic on catch_data_temp, not on
+# permit_register_raw. CHECK the exact column name against the server copy,
+# not yet confirmed from inside this script. Also carries a known confound
+# from chapter3_plan.md's own R6 discussion, worth keeping in mind before
+# reading anything behavioral into a residency split, unmatched permit
+# serials already skew out-of-state, so non-local holders also have worse
+# permit-match quality and therefore more mismeasured portfolios, the
+# residency split is not clean behavioral heterogeneity on its own.
+if ("CFEC.Permit.Holder.Residency" %in% names(catch_data_temp)) {
+  cat("\n===== CFEC.Permit.Holder.Residency distribution, fish ticket rows =====\n")
+  print(catch_data_temp %>% count(CFEC.Permit.Holder.Residency, sort = TRUE))
+} else {
+  warning("CFEC.Permit.Holder.Residency column not found on catch_data_temp, no residency breakdown ",
+          "printed. CHECK the real column name against the server copy of catch_data_temp.rdata.")
+}
 
 fished_vessel_fishery_year <- catch_data_temp %>%
   group_by(Vessel.ADFG.Number, Batch.Year, Fishery) %>%
