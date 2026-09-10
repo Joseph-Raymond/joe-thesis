@@ -58,7 +58,18 @@ gap_stacking <- table3$Value[table3$Statistic == "Mean unused count share, permi
                 table3$Value[table3$Statistic == "Mean unused count share, with unmatched permits"]
 cat("Understatement from fishery-class collapsing (permit stacking), count share:", round(gap_stacking, 4), "\n")
 
-print(xtable(table3, caption = "Held-versus-fished wedge, with and without permits missing a vessel identifier",
+# Display-only copy, Value becomes character here so "Owner-years in sample"
+# renders as a comma-grouped integer rather than xtable's default numeric
+# formatting, table3 itself (numeric) is left alone since gap_count/
+# gap_stacking above already depend on it.
+table3_display <- table3 %>%
+  mutate(Value = if_else(
+    Statistic == "Owner-years in sample",
+    format(Value, big.mark = ","),
+    sprintf("%.4f", Value)
+  ))
+
+print(xtable(table3_display, caption = "Held-versus-fished wedge, with and without permits missing a vessel identifier",
              label = "tab:ch3-table3"),
       file = file.path(table_dir, "table3_wedge_missing_vessel_id.tex"),
       include.rownames = FALSE)

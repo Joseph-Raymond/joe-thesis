@@ -58,11 +58,11 @@ owner_attrition <- owner_summary %>%
 table1 <- tibble(
   Statistic = c(
     "Panel-years",
-    "Distinct units (vessels / owners)",
+    "Distinct units",
     "Fisheries held per unit-year, mean (median)",
     "Fisheries fished per unit-year, mean (median)",
     "Revenue per unit-year, mean (median)",
-    "Panel length per unit (years), mean (median)",
+    "Panel length per unit (in years), mean (median)",
     paste0("Units meeting the ", MIN_ACTIVE_YEARS, "-year minimum (share)")
   ),
   Vessel = c(

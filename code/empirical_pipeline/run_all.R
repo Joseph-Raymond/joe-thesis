@@ -13,6 +13,10 @@
 # from 06_ onward. See its own header for why "owner" means permit holder,
 # not vessel owner.
 #
+# 04b_table_unused_by_fishery.R is a by-fishery breakdown of 04_table3.R's
+# own fleet-wide unused-share number, run immediately after it for the same
+# reason 05_table4_figure3_owner.R runs immediately after 05_.
+#
 # THIS CANNOT BE RUN LOCALLY, same as every other script in this folder, see
 # 00_setup.R.
 
@@ -20,6 +24,7 @@ source("code/empirical_pipeline/01_build_panel.R")
 source("code/empirical_pipeline/02_table1_table2.R")
 source("code/empirical_pipeline/03_figure1_figure2.R")
 source("code/empirical_pipeline/04_table3.R")
+source("code/empirical_pipeline/04b_table_unused_by_fishery.R")
 source("code/empirical_pipeline/05_table4_figure3.R")
 source("code/empirical_pipeline/05_table4_figure3_owner.R")
 source("code/empirical_pipeline/06_within_season_reallocation.R")
