@@ -105,20 +105,39 @@ if ("Permit.Status" %in% names(permit_register_raw)) {
   cat("\n===== Permit.Status distribution, permit register rows before any status filter =====\n")
   print(permit_register_raw %>% count(Permit.Status, sort = TRUE))
 
-  # Matched with grepl("cancel", ..., ignore.case = TRUE) rather than an
-  # exact string match, since direct inspection of the server copy found
-  # "permit cancelled" but the precise capitalization is not treated as a
-  # stable constant here. CHECK the printed distribution above the first
-  # time this runs, tighten or loosen the pattern if it does not cleanly
-  # separate cancelled rows from every active status value.
+  # REVISED after the first real run. The printed distribution above turned
+  # out to carry exactly two values, "Current Owner" and "Former Owner", no
+  # "cancelled" string anywhere, so an earlier grepl("cancel", ...) version
+  # of this filter matched zero rows and was a silent no-op (confirmed,
+  # Table 3's numbers were unchanged from before this filter existed). That
+  # earlier version was written off a direct-inspection report of a
+  # "permit cancelled" status that does not appear to exist under this exact
+  # field on the server copy actually loaded here, CHECK with whoever
+  # reported that whether it was a different field, a different data pull,
+  # or CFEC's own public-facing terminology rather than this raw column.
+  # "Former Owner" now drives the filter instead, since it is what
+  # chapter3_plan.md's own data dictionary documents the design intent
+  # against ("Current Owner" is the filter it calls for, chapter3_plan.md
+  # Section 1), and it lines up with the within-year resale diagnostic a few
+  # lines below, a permit resold mid-year plausibly carries one "Former
+  # Owner" row for the seller and one "Current Owner" row for the buyer in
+  # the same annual extract, which is a real prior ownership record, not a
+  # permit that stopped existing, so excluding it is still the right call
+  # for the SAME reason a cancelled permit would be excluded, it is not a
+  # live, currently-held opportunity for whoever the row's File.Number
+  # names. Matched with != "Current Owner" (not a positive match on "Former
+  # Owner") so that any additional status value that might appear in a
+  # fuller extract than this run saw is excluded by default rather than
+  # silently kept, CHECK the printed distribution above whenever this next
+  # runs against a materially different pull of permit_clean.rdata.
   permit_register_raw <- permit_register_raw %>%
-    mutate(is.cancelled = !is.na(Permit.Status) & grepl("cancel", Permit.Status, ignore.case = TRUE))
+    mutate(is.not.current.owner = is.na(Permit.Status) | Permit.Status != "Current Owner")
 
-  cat("Permit register rows flagged cancelled (excluded from held):",
-      sum(permit_register_raw$is.cancelled), "of", nrow(permit_register_raw),
-      "(", round(100 * mean(permit_register_raw$is.cancelled), 2), "% )\n")
+  cat("Permit register rows excluded for Permit.Status != \"Current Owner\":",
+      sum(permit_register_raw$is.not.current.owner), "of", nrow(permit_register_raw),
+      "(", round(100 * mean(permit_register_raw$is.not.current.owner), 2), "% )\n")
 
-  permit_register_raw <- permit_register_raw %>% filter(!is.cancelled) %>% select(-is.cancelled)
+  permit_register_raw <- permit_register_raw %>% filter(!is.not.current.owner) %>% select(-is.not.current.owner)
 } else {
   warning("Permit.Status column not found on permit_register_raw, cancelled permits are NOT being ",
           "excluded from the held set. chapter3_plan.md documents this column, CHECK the real column ",

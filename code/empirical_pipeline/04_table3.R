@@ -61,11 +61,17 @@ cat("Understatement from fishery-class collapsing (permit stacking), count share
 # Display-only copy, Value becomes character here so "Owner-years in sample"
 # renders as a comma-grouped integer rather than xtable's default numeric
 # formatting, table3 itself (numeric) is left alone since gap_count/
-# gap_stacking above already depend on it.
+# gap_stacking above already depend on it. round(Value) inside the first
+# branch matters, format() picks a single decimal width for the WHOLE
+# vector it is given, not per element, so format(Value, ...) on the raw
+# mixed vector (shares needing 4 decimals sitting next to a whole-number
+# count) padded the count out to "534,502.0000" the first time this ran,
+# rounding to a whole number first removes any decimal need from every
+# element of that call, so the selected count row comes out as "534,502".
 table3_display <- table3 %>%
   mutate(Value = if_else(
     Statistic == "Owner-years in sample",
-    format(Value, big.mark = ","),
+    format(round(Value), big.mark = ","),
     sprintf("%.4f", Value)
   ))
 
