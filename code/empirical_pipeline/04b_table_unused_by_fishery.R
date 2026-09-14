@@ -23,16 +23,36 @@ MIN_HELD_FOR_RANKING <- 30
 
 year_range <- range(owner_fishery_year$Batch.Year)
 
-table3_by_fishery <- owner_fishery_year %>%
+fishery_unused_full <- owner_fishery_year %>%
   filter(held) %>%
   group_by(Fishery) %>%
   summarise(
-    n.held       = n(),
-    n.unfished   = sum(!fished),
-    unused.share = n.unfished / n.held,
+    n.held             = n(),
+    n.unfished         = sum(!fished),
+    n.fished           = sum(fished),
+    n.distinct.owners  = n_distinct(File.Number),
+    n.distinct.years   = n_distinct(Batch.Year),
+    unused.share       = n.unfished / n.held,
     .groups = "drop"
   ) %>%
-  filter(n.held >= MIN_HELD_FOR_RANKING) %>%
+  filter(n.held >= MIN_HELD_FOR_RANKING)
+
+# Diagnostic, unrounded and untruncated. The rendered table below prints
+# sprintf("%.2f", ...) and keeps only the top 15, so a fishery at say 0.997
+# reads identically to one at exactly 1.000, and an unknown number of exact
+# ties beyond rank 15 never get printed at all (arrange() %>% slice_head()
+# truncates silently). That distinction mattered here, S04T and S04X turned
+# out to sit just under 1.000 (order-of-magnitude fewer than 1 in 1000
+# owner-years actually fished) rather than at exactly 1.000 like the
+# alphabetical block of codes ahead of them in the sorted table, a
+# difference invisible at 2 decimals but load-bearing for which explanation
+# applies to which fishery. Print every fishery above 0.95 with 4 decimals
+# so this stops hiding in future runs.
+cat("\n===== Every fishery with unused share > 0.95, unrounded, untruncated (held >=", MIN_HELD_FOR_RANKING, ") =====\n")
+print(fishery_unused_full %>% filter(unused.share > 0.95) %>% arrange(desc(unused.share)) %>%
+        mutate(unused.share = round(unused.share, 4)), n = Inf)
+
+table3_by_fishery <- fishery_unused_full %>%
   arrange(desc(unused.share)) %>%
   slice_head(n = 15) %>%
   transmute(

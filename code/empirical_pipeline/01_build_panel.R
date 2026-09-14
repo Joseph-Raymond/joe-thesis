@@ -196,6 +196,34 @@ if ("Permit.Sequence" %in% names(permit_register_raw)) {
           "CHECK the real column name against the server copy of permit_clean.rdata.")
 }
 
+# Junk gear code exclusion. REVISED same day. The first version of this
+# filter included "08" on the strength of Permit_Variance.R's precedent and
+# S08P's absence from SALMON_GEAR_DIGITS above (an incomplete convenience
+# lookup, not an authority) plus S08P's apparent 1.00 unused owner-share.
+# Direct cross-check against Context_papers/CFEC codes/Current CFEC Fishery
+# Codes.txt shows "08" is FISH WHEEL, a real, active, limited-entry salmon
+# gear (S 08P, SALMON, FISH WHEEL, UPPER YUKON, Limited, 1976-2021), so that
+# first version deleted 4,046 real held owner-years based on a false
+# premise, S08P's apparent 100% unused share is itself the bug being
+# investigated (see the register-vs-ticket Fishery presence check further
+# below), not evidence the fishery is administrative. "08" has been removed
+# from JUNK_GEAR_CODES (00_setup.R) accordingly. "77" (Hatchery Permit,
+# special harvest area) and "99" (Experimental/Special Permit) are confirmed
+# non-commercial in the same dictionary, "13" rests on Permit_Variance.R's
+# comment alone (a single 1982-only Southeast dip-net experimental code per
+# that file), not independently re-checked here.
+permit_register_raw <- permit_register_raw %>%
+  mutate(fishery.gear.digits = substr(Fishery, 2, 3))
+
+cat("\nPermit register rows with a junk gear code (", paste(JUNK_GEAR_CODES, collapse = ", "), "):",
+    sum(permit_register_raw$fishery.gear.digits %in% JUNK_GEAR_CODES), "of", nrow(permit_register_raw), "\n")
+cat("Fishery codes affected (up to 15 shown):\n")
+print(permit_register_raw %>% filter(fishery.gear.digits %in% JUNK_GEAR_CODES) %>% count(Fishery, sort = TRUE) %>% head(15))
+
+permit_register_raw <- permit_register_raw %>%
+  filter(!(fishery.gear.digits %in% JUNK_GEAR_CODES)) %>%
+  select(-fishery.gear.digits)
+
 # has.vessel.id is FALSE for a permit register row with no vessel attached
 # (NA, 0, or 99999) or an owner-only holding. permit_link.R drops these
 # outright. Kept here because Table 3 (04_table3.R) needs both versions and
@@ -303,6 +331,49 @@ if (length(alt_vessel_cols) > 0) {
   cat("\nNo alternate vessel-ID-shaped column found besides Vessel.ADFG.Number and the tender field.\n")
 }
 
+# Diagnostic for the leading hypothesis behind S04T/S04X's near-100% owner-
+# level unused share (04b_table_unused_by_fishery.R), that hypothesis being
+# a hole in the filter directly below this block, not the "0 or 99999
+# sentinel" case, an NA vessel ID. `NA %in% BAD_VESSEL_IDS` evaluates to
+# FALSE in R, so `!(Vessel.ADFG.Number %in% BAD_VESSEL_IDS)` is TRUE for an
+# NA vessel ID and the filter below silently KEEPS those rows, unlike the
+# register side (Section 1's has.vessel.id), which does test !is.na()
+# explicitly. Those surviving NA rows then all fall into one NA group under
+# group_by(Vessel.ADFG.Number, Batch.Year, Fishery) below, so an entire
+# fishery-year of vessel-less landings collapses to a single row credited to
+# whichever File.Number happens to be first() in that group, at most one
+# owner per fishery-year can ever read as fished. Bristol Bay set gillnet,
+# Kotzebue gillnet, and Upper Yukon fish wheel are all beach- or
+# skiff-based fisheries where a blank ADFG number is plausible. Run before
+# the sentinel filter below so the NA rows are still present to count.
+na_vessel_diag <- catch_data_temp %>%
+  filter(is.na(Vessel.ADFG.Number), Batch.Year >= MIN_YEAR) %>%
+  mutate(Fishery = strip_fishery_space(CFEC.Permit.Fishery)) %>%
+  filter(Fishery != "")
+
+cat("\n===== Ticket rows with an NA Vessel.ADFG.Number (kept by the sentinel filter below as written) =====\n")
+cat("Rows:", nrow(na_vessel_diag), "of", nrow(catch_data_temp), "\n")
+cat("Top 20 Fishery codes by NA-vessel row count:\n")
+print(na_vessel_diag %>% count(Fishery, sort = TRUE) %>% head(20))
+cat("Top 20 Fishery codes by NA-vessel total revenue (nominal, undeflated):\n")
+print(na_vessel_diag %>% group_by(Fishery) %>% summarise(revenue = sum(CFEC.Value..Detail., na.rm = TRUE), .groups = "drop") %>%
+        arrange(desc(revenue)) %>% head(20))
+
+decisive_check_codes <- c("S04T", "S04X", "S04P", "S08P", "S03T")
+cat("\nPer-fishery breakdown, flagged codes, all still counting NA as a vessel value here:\n")
+for (code in decisive_check_codes) {
+  code_rows <- catch_data_temp %>%
+    filter(Batch.Year >= MIN_YEAR) %>%
+    mutate(Fishery = strip_fishery_space(CFEC.Permit.Fishery)) %>%
+    filter(Fishery == code)
+  n.na <- sum(is.na(code_rows$Vessel.ADFG.Number))
+  n.sentinel <- sum(code_rows$Vessel.ADFG.Number %in% BAD_VESSEL_IDS, na.rm = TRUE)
+  n.real <- nrow(code_rows) - n.na - n.sentinel
+  n.distinct.real.vessels <- n_distinct(code_rows$Vessel.ADFG.Number[!is.na(code_rows$Vessel.ADFG.Number) & !(code_rows$Vessel.ADFG.Number %in% BAD_VESSEL_IDS)])
+  cat(code, ": total rows =", nrow(code_rows), ", NA vessel =", n.na, ", sentinel vessel =", n.sentinel,
+      ", real non-sentinel rows =", n.real, ", distinct real vessels =", n.distinct.real.vessels, "\n")
+}
+
 catch_data_temp <- catch_data_temp %>% filter(!(Vessel.ADFG.Number %in% BAD_VESSEL_IDS))
 catch_data_temp$Vessel.ADFG.Number <- as.integer(catch_data_temp$Vessel.ADFG.Number)
 
@@ -324,6 +395,42 @@ share_zero_fill_has_positive_pounds <- catch_data_temp %>%
   pull(share)
 
 catch_data_temp[["CFEC.Value..Detail."]][is.na(catch_data_temp[["CFEC.Value..Detail."]])] <- 0
+
+# Diagnostic for S04P and S08P specifically, whose Fishery code never
+# appears anywhere in the ticket-side data at all (register vs ticket-side
+# presence check further below), unlike S04T/S04X which do appear but at
+# near-zero volume. chapter3_plan.md's own data dictionary (Section 1) notes
+# CFEC.Permit.Fishery "is blank when ticket permit information could not be
+# matched to the CFEC permit file", and the filter below drops any row where
+# it is blank or NA, which means a permit CFEC failed to match on the ticket
+# gets silently deleted from the fished side while the register side (built
+# from a different, complete source) still counts it as held. The plan doc
+# also lists a second, separate ticket column, Permit.Fishery (no space,
+# chapter3_plan.md Section 1), that this pipeline has never used. This
+# checks whether that second column recovers what the first one drops.
+cat("\n===== Blank/NA CFEC.Permit.Fishery rows, about to be dropped by the filter below =====\n")
+blank_permit_fishery <- catch_data_temp %>%
+  filter(Batch.Year >= MIN_YEAR, is.na(CFEC.Permit.Fishery) | strip_fishery_space(CFEC.Permit.Fishery) == "")
+cat("Rows:", nrow(blank_permit_fishery), "of", sum(catch_data_temp$Batch.Year >= MIN_YEAR), "\n")
+
+if ("Permit.Fishery" %in% names(catch_data_temp)) {
+  recovered_permit_fishery <- blank_permit_fishery %>%
+    filter(!is.na(Permit.Fishery), strip_fishery_space(Permit.Fishery) != "")
+  cat("Of those, rows where Permit.Fishery (the second, unused ticket-side fishery column) is non-blank:",
+      nrow(recovered_permit_fishery), "\n")
+  cat("Top 20 Permit.Fishery codes among the recovered rows:\n")
+  print(recovered_permit_fishery %>% mutate(Fishery = strip_fishery_space(Permit.Fishery)) %>%
+          count(Fishery, sort = TRUE) %>% head(20))
+  cat("Row counts for the flagged codes, CFEC.Permit.Fishery vs Permit.Fishery, year >= MIN_YEAR:\n")
+  for (code in c("S04T", "S04X", "S04P", "S08P")) {
+    n.cfec   <- sum(strip_fishery_space(catch_data_temp$CFEC.Permit.Fishery) == code, na.rm = TRUE)
+    n.permit <- sum(strip_fishery_space(catch_data_temp$Permit.Fishery) == code, na.rm = TRUE)
+    cat(code, ": CFEC.Permit.Fishery =", n.cfec, ", Permit.Fishery =", n.permit, "\n")
+  }
+} else {
+  cat("Permit.Fishery column not found on catch_data_temp, cannot check whether it recovers these rows,",
+      "CHECK the real column name against the server copy of catch_data_temp.rdata.\n")
+}
 
 catch_data_temp <- catch_data_temp %>%
   filter(Batch.Year >= MIN_YEAR) %>%
@@ -843,25 +950,39 @@ cat("vessel_period_summary rows:", nrow(vessel_period_summary),
 # without permits that have no vessel identifier, per Chapter3_outline.md
 # Section 3 Table 3, without re-loading and re-cleaning the register.
 # Diagnostic. 04b_table_unused_by_fishery.R found several gear-04 (set
-# gillnet) fisheries, S04T largest among them, sitting at exactly 1.00
-# unused owner-share, and the sentinel-vessel-ID diagnostic in Section 2
-# already ruled out ticket dropping as the cause, none of those codes
-# appear anywhere in that diagnostic's dropped-row or dropped-revenue
-# lists. A 100% failure rate at that scale, every single year, looks more
-# like a systematic key mismatch in the held/fished join below than a
-# behavioral pattern. chapter3_plan.md documents register-side Fishery as
-# already unspaced ("S03T") while the ticket side needs
-# strip_fishery_space() applied (CFEC.Permit.Fishery, e.g. "S 03T"), a
-# claim never directly checked from inside this script. This compares the
-# two sides' actual Fishery code sets rather than assuming the documented
-# convention holds for every code.
+# gillnet) fisheries, S04T largest among them, sitting at exactly 1.00 (a
+# table value rounded to 2 decimals, not necessarily exact) unused owner-
+# share, and the sentinel-vessel-ID diagnostic in Section 2 already ruled
+# out ticket dropping as the cause, none of those codes appear anywhere in
+# that diagnostic's dropped-row or dropped-revenue lists. REVISED same day,
+# a plain %in% presence check below (kept for the whitespace/gear-04 sweep
+# further down) turned out to be too coarse to trust on its own, TRUE means
+# "at least one row anywhere in 31 years", which is compatible with the code
+# being fished at trivial volume, not proof the fishery is fine. This
+# version counts rows and distinct File.Numbers instead of returning a bare
+# boolean, and cross-references against the NA-vessel-ID diagnostic already
+# printed in Section 2 (search "decisive_check_codes"), which is the
+# leading hypothesis for S04T/S04X specifically. chapter3_plan.md documents
+# register-side Fishery as already unspaced ("S03T") while the ticket side
+# needs strip_fishery_space() applied (CFEC.Permit.Fishery, e.g. "S 03T"), a
+# claim confirmed true below (zero register-side codes carry whitespace),
+# so a whitespace mismatch is not the explanation for what follows.
 check_codes <- c("S04T", "S04X", "S04P", "S08P", "S03T")
-cat("\n===== Register-side vs ticket-side Fishery code presence, flagged codes =====\n")
+cat("\n===== Register-side vs ticket-side Fishery code volume, flagged codes =====\n")
 for (code in check_codes) {
-  in_register <- code %in% unique(permit_register_raw$Fishery)
-  in_ticket   <- code %in% unique(fished_vessel_fishery_year$Fishery)
-  cat(code, ": in register =", in_register, ", in ticket-side (post-strip) =", in_ticket, "\n")
+  register_rows <- permit_register_raw %>% filter(Fishery == code)
+  ticket_rows   <- fished_vessel_fishery_year %>% filter(Fishery == code)
+  cat(code, ": register rows =", nrow(register_rows), ", distinct register File.Number =",
+      n_distinct(register_rows$File.Number),
+      " | ticket-side rows =", nrow(ticket_rows), ", distinct ticket-side File.Number =",
+      n_distinct(ticket_rows$File.Number), ", ticket-side revenue =", round(sum(ticket_rows$revenue, na.rm = TRUE)), "\n")
 }
+
+held_file_numbers <- unique(permit_register_raw$File.Number[permit_register_raw$Fishery %in% check_codes])
+fished_file_numbers <- unique(fished_vessel_fishery_year$File.Number[fished_vessel_fishery_year$Fishery %in% check_codes])
+cat("Across the 5 flagged codes together, distinct held File.Number:", length(held_file_numbers),
+    ", distinct fished File.Number:", length(fished_file_numbers),
+    ", intersection:", length(intersect(held_file_numbers, fished_file_numbers)), "\n")
 
 register_fisheries <- unique(permit_register_raw$Fishery)
 cat("\nRegister-side Fishery values containing whitespace:",

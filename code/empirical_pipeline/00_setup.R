@@ -78,8 +78,23 @@ SALMON_GEAR_DIGITS <- c(
   "15" = "Power troll"
 )
 
-# Junk gear codes filtered elsewhere in the existing code (Permit_Variance.R)
-JUNK_GEAR_CODES <- c("08", "13", "77", "99")
+# Junk gear codes, checked directly against Context_papers/CFEC codes/Current
+# CFEC Fishery Codes.txt on 2026-09-14. "77" is Hatchery Permit (special
+# harvest area, not open commercial fishing) and "99" is Experimental/Special
+# Permit, both confirmed non-commercial there. "13" is left in on the
+# strength of Permit_Variance.R's precedent alone (a single 1982-only
+# Southeast dip-net experimental code per that file's own comment), not
+# independently re-checked against the dictionary here. "08" was REMOVED
+# from this list on 2026-09-14, it is FISH WHEEL, a real, active,
+# limited-entry salmon gear (S 08P, SALMON, FISH WHEEL, UPPER YUKON, Limited,
+# 1976-2021, per the same dictionary), wrongly treated as junk for one round
+# based only on Permit_Variance.R's comment and S08P's absence from
+# SALMON_GEAR_DIGITS above (an incomplete convenience lookup, not an
+# authority). That mistake briefly filtered 4,046 real held owner-years out
+# of the panel. Before adding anything back to this list, check the
+# dictionary directly rather than trusting what an old exploratory script
+# happened to exclude.
+JUNK_GEAR_CODES <- c("13", "77", "99")
 
 # ---- small helpers ---------------------------------------------------
 
