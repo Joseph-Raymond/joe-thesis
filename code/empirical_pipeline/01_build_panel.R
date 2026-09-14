@@ -250,6 +250,59 @@ cat("Top 15 Fishery codes by total dropped revenue (nominal, undeflated):\n")
 print(sentinel_diag %>% group_by(Fishery) %>% summarise(revenue = sum(CFEC.Value..Detail.), .groups = "drop") %>%
         arrange(desc(revenue)) %>% head(15))
 
+# Two competing explanations for the sentinel rows above, not yet
+# distinguished. chapter3_plan.md Section 1's own data dictionary lists
+# several other vessel-identifier-shaped columns on the raw ticket extract
+# beyond Vessel.ADFG.Number, including AKR.Vessel.ADFG.Number,
+# CFEC.Vessel.ADFG.Number, and CFEC.Permit.Vessel.ADFG.Number
+# (Tender.Vessel.ADFG.Number is deliberately excluded below, that is the
+# transport/tender boat, not the catching vessel, so not a substitute). The
+# AKFIN Comprehensive Fish Ticket user guide (context_data/data info/
+# UserGuide_Comprehensive_FT3.0.pdf) independently documents the same
+# pattern from the source-system side, a raw ADFG_H_ADFG_NUMBER field plus
+# two separate correction passes on top of it (CFEC_CORRECTED_ADFG and
+# AKFIN's own N_ADFG), and also documents a first-class flag for exactly
+# the question the diagnostic above answers indirectly, CFEC_ADFG_STATUS,
+# 'V' a vessel was used, 'N' a vessel was not used, with the guide's own
+# gloss "some fisheries do not require a vessel." None of these are read
+# anywhere in this pipeline and none are confirmed present in this extract
+# under the AKFIN name, the R column names here were inferred from code
+# alone (chapter3_plan.md's own caveat), so this prints whatever the real
+# names turn out to be rather than guessing a literal string, the
+# Permit.Status "cancel" lesson from earlier in this file.
+vessel_like_cols <- names(catch_data_temp)[grepl("vessel|adfg|status", names(catch_data_temp), ignore.case = TRUE)]
+cat("\n===== Columns on catch_data_temp matching 'vessel', 'adfg', or 'status' =====\n")
+print(vessel_like_cols)
+
+status_like_cols <- vessel_like_cols[grepl("status", vessel_like_cols, ignore.case = TRUE)]
+if (length(status_like_cols) > 0) {
+  for (col in status_like_cols) {
+    cat("\n----- Value counts for", col, ", all rows -----\n")
+    print(catch_data_temp %>% count(.data[[col]], sort = TRUE))
+    cat("\n----- Value counts for", col, ", restricted to rows with a sentinel Vessel.ADFG.Number (0 or 99999) -----\n")
+    print(catch_data_temp %>% filter(Vessel.ADFG.Number %in% BAD_VESSEL_IDS) %>% count(.data[[col]], sort = TRUE))
+  }
+} else {
+  cat("\nNo column name matched 'status' among vessel/adfg-like columns, CFEC_ADFG_STATUS (or its ",
+      "equivalent) may not have survived into this extract or uses a different naming convention, ",
+      "CHECK against real headers.\n")
+}
+
+alt_vessel_cols <- setdiff(
+  vessel_like_cols[grepl("vessel", vessel_like_cols, ignore.case = TRUE) & !grepl("tender", vessel_like_cols, ignore.case = TRUE)],
+  "Vessel.ADFG.Number"
+)
+if (length(alt_vessel_cols) > 0) {
+  for (col in alt_vessel_cols) {
+    recovered <- catch_data_temp %>%
+      filter(Vessel.ADFG.Number %in% BAD_VESSEL_IDS, !is.na(.data[[col]]), !(.data[[col]] %in% BAD_VESSEL_IDS))
+    cat("\nAmong rows with a sentinel Vessel.ADFG.Number, rows with a non-missing, non-sentinel value in",
+        col, ":", nrow(recovered), "of", sum(catch_data_temp$Vessel.ADFG.Number %in% BAD_VESSEL_IDS, na.rm = TRUE), "\n")
+  }
+} else {
+  cat("\nNo alternate vessel-ID-shaped column found besides Vessel.ADFG.Number and the tender field.\n")
+}
+
 catch_data_temp <- catch_data_temp %>% filter(!(Vessel.ADFG.Number %in% BAD_VESSEL_IDS))
 catch_data_temp$Vessel.ADFG.Number <- as.integer(catch_data_temp$Vessel.ADFG.Number)
 
