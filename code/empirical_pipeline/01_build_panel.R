@@ -858,6 +858,47 @@ cat("Mean owner-level unused.count.share (fishery-class):",
     round(mean(owner_year$unused.count.share, na.rm = TRUE), 4),
     " vs (permit-serial):", round(mean(owner_year$unused.count.share.permit, na.rm = TRUE), 4), "\n")
 
+# Attribute check on the population chapter3_writeup.tex Section 3 calls the
+# clearest case of holding without fishing, no vessel on record for this
+# permit AND the owner had zero ticket revenue anywhere that year. That
+# claim is currently only prose, nothing in this pipeline had isolated the
+# population and looked at it directly. The concern worth ruling out is
+# whether the Permit.Status filter above (Section 1) actually caught every
+# dropped or cancelled permit, or whether some of these rows are stale
+# register entries rather than genuine held-but-idle access. If filtering
+# missed something, it should show up here as a Permit.Status or
+# Permit.Type value that is not "Current Owner" or otherwise looks off,
+# concentrated in this population rather than spread evenly across the
+# whole panel.
+zero_revenue_owner_years <- owner_year %>%
+  filter(owner.year.rev == 0) %>%
+  distinct(File.Number, Batch.Year)
+
+both_bars_permits <- permit_register_raw %>%
+  filter(!has.vessel.id) %>%
+  semi_join(zero_revenue_owner_years, by = c("File.Number", "Batch.Year"))
+
+cat("\n===== Attributes of permits with no vessel on record AND zero owner revenue that year =====\n")
+cat("Permit register rows in this population:", nrow(both_bars_permits),
+    "of", sum(!permit_register_raw$has.vessel.id), "vessel-unmatched rows overall",
+    "(", round(100 * nrow(both_bars_permits) / sum(!permit_register_raw$has.vessel.id), 2), "% )\n")
+if ("Permit.Status" %in% names(both_bars_permits)) {
+  cat("Permit.Status within this population (should read entirely \"Current Owner\" if the Section 1",
+      "filter is catching everything it should) --\n")
+  print(both_bars_permits %>% count(Permit.Status, sort = TRUE))
+} else {
+  warning("Permit.Status not found on permit_register_raw, cannot check it for the ",
+          "no-vessel/zero-revenue population.")
+}
+if ("Permit.Type" %in% names(both_bars_permits)) {
+  cat("Permit.Type within this population (reported as a diagnostic, transferability varies by",
+      "type and has not been separately verified, see the Section 1 print of this same column) --\n")
+  print(both_bars_permits %>% count(Permit.Type, sort = TRUE))
+} else {
+  warning("Permit.Type not found on permit_register_raw, cannot check it for the ",
+          "no-vessel/zero-revenue population.")
+}
+
 active_owner_years <- owner_year %>% filter(owner.year.rev > 0) %>%
   select(File.Number, Batch.Year, owner.year.rev)
 
