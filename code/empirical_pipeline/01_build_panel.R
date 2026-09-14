@@ -225,6 +225,31 @@ load(file.path(intermediate_dir, "catch_data_temp.rdata"))
 
 # Same fixes as data load module.R / permit_link.R.
 catch_data_temp$Vessel.ADFG.Number[catch_data_temp$Vessel.ADFG.Number == 62.39] <- 62339
+
+# Diagnostic, run before the sentinel-vessel-ID filter below discards these
+# rows for good. held_owner_fishery (Section 5) deliberately keeps permits
+# with no vessel of record, so a permit with no vessel attached still counts
+# as held. This checks whether the fished side is symmetric, a fishery
+# landed mostly by shore-based deliveries (e.g. set gillnet) may routinely
+# log Vessel.ADFG.Number as 0, in which case that revenue disappears here
+# and every owner holding that permit reads as never-fished, indistinguishable
+# from someone who actually left the permit idle. 04b_table_unused_by_fishery.R
+# surfaced several gear-04 (set gillnet) fisheries, including Bristol Bay
+# (S04T), at exactly 1.00 unused share, which this diagnostic is meant to
+# either confirm or rule out as the cause.
+sentinel_diag <- catch_data_temp %>%
+  filter(Vessel.ADFG.Number %in% BAD_VESSEL_IDS, Batch.Year >= MIN_YEAR) %>%
+  mutate(Fishery = strip_fishery_space(CFEC.Permit.Fishery)) %>%
+  filter(Fishery != "", !is.na(CFEC.Value..Detail.), CFEC.Value..Detail. > 0)
+
+cat("\n===== Ticket rows with positive recorded revenue about to be dropped for a sentinel Vessel.ADFG.Number (0 or 99999) =====\n")
+cat("Rows:", nrow(sentinel_diag), "\n")
+cat("Top 15 Fishery codes by dropped revenue-positive row count:\n")
+print(sentinel_diag %>% count(Fishery, sort = TRUE) %>% head(15))
+cat("Top 15 Fishery codes by total dropped revenue (nominal, undeflated):\n")
+print(sentinel_diag %>% group_by(Fishery) %>% summarise(revenue = sum(CFEC.Value..Detail.), .groups = "drop") %>%
+        arrange(desc(revenue)) %>% head(15))
+
 catch_data_temp <- catch_data_temp %>% filter(!(Vessel.ADFG.Number %in% BAD_VESSEL_IDS))
 catch_data_temp$Vessel.ADFG.Number <- as.integer(catch_data_temp$Vessel.ADFG.Number)
 
