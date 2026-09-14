@@ -842,6 +842,37 @@ cat("vessel_period_summary rows:", nrow(vessel_period_summary),
 # through to owner_year below so 04_table3.R can compare the wedge with and
 # without permits that have no vessel identifier, per Chapter3_outline.md
 # Section 3 Table 3, without re-loading and re-cleaning the register.
+# Diagnostic. 04b_table_unused_by_fishery.R found several gear-04 (set
+# gillnet) fisheries, S04T largest among them, sitting at exactly 1.00
+# unused owner-share, and the sentinel-vessel-ID diagnostic in Section 2
+# already ruled out ticket dropping as the cause, none of those codes
+# appear anywhere in that diagnostic's dropped-row or dropped-revenue
+# lists. A 100% failure rate at that scale, every single year, looks more
+# like a systematic key mismatch in the held/fished join below than a
+# behavioral pattern. chapter3_plan.md documents register-side Fishery as
+# already unspaced ("S03T") while the ticket side needs
+# strip_fishery_space() applied (CFEC.Permit.Fishery, e.g. "S 03T"), a
+# claim never directly checked from inside this script. This compares the
+# two sides' actual Fishery code sets rather than assuming the documented
+# convention holds for every code.
+check_codes <- c("S04T", "S04X", "S04P", "S08P", "S03T")
+cat("\n===== Register-side vs ticket-side Fishery code presence, flagged codes =====\n")
+for (code in check_codes) {
+  in_register <- code %in% unique(permit_register_raw$Fishery)
+  in_ticket   <- code %in% unique(fished_vessel_fishery_year$Fishery)
+  cat(code, ": in register =", in_register, ", in ticket-side (post-strip) =", in_ticket, "\n")
+}
+
+register_fisheries <- unique(permit_register_raw$Fishery)
+cat("\nRegister-side Fishery values containing whitespace:",
+    sum(grepl(" ", register_fisheries, fixed = TRUE)), "of", length(register_fisheries), "distinct codes\n")
+
+gear04_register <- register_fisheries[substr(register_fisheries, 2, 3) == "04"]
+cat("Register-side Fishery codes with gear digits '04' (up to 15 shown):\n")
+print(head(gear04_register, 15))
+cat("Of those, also present in the ticket-side (post-strip) Fishery set:",
+    sum(gear04_register %in% unique(fished_vessel_fishery_year$Fishery)), "of", length(gear04_register), "\n")
+
 held_owner_fishery <- permit_register_raw %>%
   filter(!is.na(File.Number)) %>%
   group_by(File.Number, Batch.Year, Fishery) %>%
