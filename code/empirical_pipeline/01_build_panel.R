@@ -1204,6 +1204,40 @@ for (fn in sample_holders) {
   }
 }
 
+# Refined diagnostic following the sample above. That sample was a genuine
+# mix, not a uniform failure, one holder turned out to have real,
+# substantial S04T revenue in a DIFFERENT year than the one that flagged
+# them as zero-revenue, a mundane "idle this one year" pattern consistent
+# with CFEC Report 25-4N's own ~18.5% latency benchmark, not a bug. Another
+# showed zero footprint anywhere, as permit holder or vessel owner, across
+# all 35 years of register data searched, a much more concerning "true
+# ghost" pattern. gear04_owner_check earlier only tested same-YEAR
+# activity, this checks LIFETIME activity instead, does this File.Number
+# generate ticket revenue under its own identity in ANY year at all, not
+# just the specific year flagged as unused, to separate "sometimes idle,
+# sometimes active" (real, unremarkable behavior, should not worry anyone)
+# from "never once appears, in any role, in the entire 31-year panel" (the
+# pattern actually worth concern, and the one to size before concluding
+# anything about how much of Table 3's wedge is real).
+gear04_holders <- permit_register_raw %>%
+  filter(substr(Fishery, 2, 3) == "04") %>%
+  distinct(File.Number)
+
+lifetime_activity <- gear04_holders %>%
+  mutate(
+    ever.permit.holder = File.Number %in% catch_data_temp$CFEC.Permit.Holder.Filing.Number,
+    ever.vessel.owner  = File.Number %in% catch_data_temp$CFEC.Vessel.Owner.Filing.Number
+  )
+
+cat("\n===== Lifetime footprint check, ALL gear-04 register holders (any role, any fishery, any year, ever) =====\n")
+cat("Distinct gear-04 register holders:", nrow(lifetime_activity), "\n")
+cat("Never once a permit holder on any ticket, any year, any fishery:",
+    sum(!lifetime_activity$ever.permit.holder),
+    "(", round(100 * mean(!lifetime_activity$ever.permit.holder), 2), "% )\n")
+cat("Never once a permit holder OR a vessel owner on any ticket, any year, any fishery (true zero footprint):",
+    sum(!lifetime_activity$ever.permit.holder & !lifetime_activity$ever.vessel.owner),
+    "(", round(100 * mean(!lifetime_activity$ever.permit.holder & !lifetime_activity$ever.vessel.owner), 2), "% )\n")
+
 # Attribute check on the population chapter3_writeup.tex Section 3 calls the
 # clearest case of holding without fishing, no vessel on record for this
 # permit AND the owner had zero ticket revenue anywhere that year. That
