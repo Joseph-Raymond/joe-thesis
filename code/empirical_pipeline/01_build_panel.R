@@ -251,6 +251,40 @@ permit_register <- permit_register_raw %>% filter(has.vessel.id)
 
 load(file.path(intermediate_dir, "catch_data_temp.rdata"))
 
+# Diagnostic, run before anything else touches catch_data_temp, on the
+# rawest possible version of the object. Investigating why S04T (Bristol Bay
+# set gillnet) and its gear-04 siblings show 91 distinct real, non-sentinel,
+# non-NA vessels and 1,233 real ticket rows total across the WHOLE 31-year
+# panel (decisive_check_codes diagnostic further below), when CFEC's own
+# published Report 25-4N ("CFEC Salmon Set Gillnet Permits and DNR Shore
+# Fishery Leases...", Context_papers/set gillnet report 25-04N.pdf) puts
+# 1,500-1,950 set gillnet permit holders landing catches EVERY SINGLE YEAR
+# across just five of these fisheries. Three different exploratory scripts
+# in code/ (outside this pipeline) save to this exact intermediate data/
+# catch_data_temp.rdata path, code/permit_cleaning.R and code/prod_reg.R
+# both do a plain unfiltered bind_rows(catch_data), code/Revenue.R applies a
+# group_by(Vessel.ADFG.Number) %>% filter(any(substr(CFEC.Permit.Fishery, 1,
+# 1) == "S")) vessel-keyed salmon-only filter but saves the RESULT to
+# my_data.rds, not to this path, so it should not be the live source of
+# this file, though which of the three scripts last wrote the copy
+# currently sitting in intermediate data/ cannot be confirmed from code
+# alone, hence checking directly here rather than assuming. If this object
+# turns out to hold far fewer distinct vessels or far fewer non-salmon rows
+# than a genuinely unfiltered 1991-2021 AKFIN pull should, some filter
+# similar to Revenue.R's is live after all, just via a path not found by
+# grep. If vessel/species diversity looks normal, the shortfall is upstream
+# of every R script in this repo, most likely the original CFEC/AKFIN data
+# pull itself never contained many of these shore-based, vessel-less
+# landings (the AKFIN user guide's own words, "The Comprehensive FT is best
+# used for catcher vessels").
+cat("\n===== Raw catch_data_temp, before any cleaning in this script =====\n")
+cat("Rows:", nrow(catch_data_temp), " Columns:", ncol(catch_data_temp), "\n")
+cat("Distinct Vessel.ADFG.Number values:", n_distinct(catch_data_temp$Vessel.ADFG.Number), "\n")
+cat("Distinct first-letter-of-CFEC.Permit.Fishery species codes, with row counts:\n")
+print(catch_data_temp %>% mutate(species = substr(CFEC.Permit.Fishery, 1, 1)) %>% count(species, sort = TRUE))
+cat("Column names:\n")
+print(names(catch_data_temp))
+
 # Same fixes as data load module.R / permit_link.R.
 catch_data_temp$Vessel.ADFG.Number[catch_data_temp$Vessel.ADFG.Number == 62.39] <- 62339
 
