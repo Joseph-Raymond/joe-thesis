@@ -1088,6 +1088,45 @@ cat("Mean owner-level unused.count.share (fishery-class):",
     round(mean(owner_year$unused.count.share, na.rm = TRUE), 4),
     " vs (permit-serial):", round(mean(owner_year$unused.count.share.permit, na.rm = TRUE), 4), "\n")
 
+# Diagnostic. 04b_table_unused_by_fishery.R's unrounded >0.95 listing (once
+# run) shows this is not confined to S04T/S04X/S04P/S08P, nearly every gear
+# "04" (set gillnet) fishery in the state sits at 0.95+ unused share (Cook
+# Inlet S04H, Lower Yukon S04Y, Kuskokwim S04W, Yakutat S04D, Norton Sound
+# S04Z, on top of the four already flagged), together a large share of the
+# whole sample, while the neighboring gear "03" (drift gillnet) code S03T
+# matches ticket data fine ($billions in confirmed revenue). Neither the
+# NA-vessel-ID hypothesis (Section 2, ruled out directly, only 25 NA-vessel
+# rows exist in the whole panel, all under S03T) nor the blank-
+# CFEC.Permit.Fishery hypothesis (also Section 2, CFEC.Permit.Fishery and
+# Permit.Fishery show identical counts for these codes) explains it, so
+# whatever real ticket rows exist for these owners under these codes appear
+# to be genuinely rare, not filtered out. This checks a live alternative,
+# CFEC's own Report 12-02-N documents "permit stacking" for Bristol Bay set
+# gillnet specifically, operators legally holding a permit they do not
+# personally fish that year. If these owners generate real revenue under
+# SOME fishery code that year, that is consistent with stacking/an active
+# choice among permits actually held (an economic finding, not a bug). If
+# they generate zero revenue anywhere, that points back at a coding or
+# matching problem instead.
+gear04_owner_check <- owner_fishery_year %>%
+  filter(held, !fished, substr(Fishery, 2, 3) == "04") %>%
+  distinct(File.Number, Batch.Year, Fishery) %>%
+  left_join(owner_year %>% select(File.Number, Batch.Year, owner.year.rev, n.fished.fishery),
+            by = c("File.Number", "Batch.Year"))
+
+cat("\n===== Owner-fishery-years held-but-unfished under a gear '04' code, whether the owner fished ANYTHING that year =====\n")
+cat("Cells:", nrow(gear04_owner_check), "\n")
+cat("Of those, owner had positive revenue somewhere that year (owner.year.rev > 0):",
+    sum(gear04_owner_check$owner.year.rev > 0, na.rm = TRUE),
+    "(", round(100 * mean(gear04_owner_check$owner.year.rev > 0, na.rm = TRUE), 2), "% )\n")
+cat("Of those, owner fished at least one OTHER fishery that same year (n.fished.fishery > 0):",
+    sum(gear04_owner_check$n.fished.fishery > 0, na.rm = TRUE),
+    "(", round(100 * mean(gear04_owner_check$n.fished.fishery > 0, na.rm = TRUE), 2), "% )\n")
+cat("Breakdown by Fishery code (up to 20 shown):\n")
+print(gear04_owner_check %>% group_by(Fishery) %>%
+        summarise(n.cells = n(), share.owner.fished.something = mean(owner.year.rev > 0, na.rm = TRUE), .groups = "drop") %>%
+        arrange(desc(n.cells)) %>% head(20))
+
 # Attribute check on the population chapter3_writeup.tex Section 3 calls the
 # clearest case of holding without fishing, no vessel on record for this
 # permit AND the owner had zero ticket revenue anywhere that year. That
