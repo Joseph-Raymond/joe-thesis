@@ -1161,6 +1161,49 @@ print(gear04_owner_check %>% group_by(Fishery) %>%
         summarise(n.cells = n(), share.owner.fished.something = mean(owner.year.rev > 0, na.rm = TRUE), .groups = "drop") %>%
         arrange(desc(n.cells)) %>% head(20))
 
+# Diagnostic. Every relocation hypothesis tested so far (sentinel/NA vessel
+# ID, blank CFEC.Permit.Fishery, whitespace, permit stacking, revenue under
+# a DIFFERENT fishery code via gear04_owner_check just above) has been
+# refuted by real counts, and the raw catch_data_temp column/row/species
+# inventory printed in Section 2 shows a healthy, complete, unfiltered pull,
+# not a hidden upstream filter. What is left is narrower, these File.Numbers
+# generate no activity anywhere under CFEC.Permit.Holder.Filing.Number, full
+# stop. This prints actual example records for a handful of persistent S04T
+# holders who never once show revenue, rather than another aggregate count,
+# a formatting or ID-continuity quirk (an off-by-one, a leading zero, a
+# historical filing-number remapping across CFEC's own systems) might be
+# visible by eye on real rows in a way no join-based test can surface. Also
+# checks CFEC.Vessel.Owner.Filing.Number, not just
+# CFEC.Permit.Holder.Filing.Number, in case the vessel owner identity, not
+# the permit holder identity, is what actually links to any real ticket
+# activity this person has.
+sample_holders <- permit_register_raw %>%
+  filter(Fishery == "S04T") %>%
+  inner_join(owner_year %>% filter(owner.year.rev == 0), by = c("File.Number", "Batch.Year")) %>%
+  count(File.Number, sort = TRUE) %>%
+  head(5) %>%
+  pull(File.Number)
+
+cat("\n===== Sample of persistent S04T holders with zero owner revenue, searched for ANY footprint anywhere in catch_data_temp =====\n")
+for (fn in sample_holders) {
+  cat("\n--- File.Number", fn, "---\n")
+  cat("Register rows for this File.Number under S04T:\n")
+  print(permit_register_raw %>% filter(File.Number == fn, Fishery == "S04T") %>%
+          select(Batch.Year, Fishery, Vessel.ADFG.Number, has.vessel.id))
+  n.as.permit.holder <- sum(catch_data_temp$CFEC.Permit.Holder.Filing.Number == fn, na.rm = TRUE)
+  n.as.vessel.owner  <- sum(catch_data_temp$CFEC.Vessel.Owner.Filing.Number == fn, na.rm = TRUE)
+  cat("Rows anywhere in catch_data_temp with CFEC.Permit.Holder.Filing.Number ==", fn, ":", n.as.permit.holder, "\n")
+  cat("Rows anywhere in catch_data_temp with CFEC.Vessel.Owner.Filing.Number ==", fn, ":", n.as.vessel.owner, "\n")
+  if (n.as.permit.holder > 0) {
+    print(catch_data_temp %>% filter(CFEC.Permit.Holder.Filing.Number == fn) %>%
+            select(Batch.Year, CFEC.Permit.Fishery, Vessel.ADFG.Number, CFEC.Value..Detail.) %>% head(5))
+  }
+  if (n.as.vessel.owner > 0) {
+    print(catch_data_temp %>% filter(CFEC.Vessel.Owner.Filing.Number == fn) %>%
+            select(Batch.Year, CFEC.Permit.Fishery, Vessel.ADFG.Number, CFEC.Value..Detail.) %>% head(5))
+  }
+}
+
 # Attribute check on the population chapter3_writeup.tex Section 3 calls the
 # clearest case of holding without fishing, no vessel on record for this
 # permit AND the owner had zero ticket revenue anywhere that year. That
