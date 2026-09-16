@@ -96,6 +96,33 @@ SALMON_GEAR_DIGITS <- c(
 # happened to exclude.
 JUNK_GEAR_CODES <- c("13", "77", "99")
 
+# Gear digits excluded from the held-vs-fished wedge for a DIFFERENT reason
+# than JUNK_GEAR_CODES above, these are real, valid, often economically
+# major fisheries (Bristol Bay set gillnet alone issues roughly 1,000
+# permits a year per CFEC's own Report 25-4N, "CFEC Salmon Set Gillnet
+# Permits and DNR Shore Fishery Leases..."), not non-commercial permit
+# types. The problem is a severe register-vs-ticket data gap specific to
+# this extract, a lifetime footprint check (any role, any fishery, any
+# year, ever, 01_build_panel.R Section 7) found roughly 73 percent of gear-
+# "04" permit holders never appear anywhere in 16.3 million ticket rows,
+# not once, in 30+ years, a rate far too extreme to be real economic
+# behavior (CFEC's own published latency rate for comparable fisheries
+# runs roughly 18.5 percent, not 95-100 percent). "04" is set gillnet
+# across every species letter it appears under, confirmed against
+# Context_papers/CFEC codes/Current CFEC Fishery Codes.txt for the salmon
+# codes specifically. "08" (fish wheel) is included on direct evidence of
+# the identical failure mode, S08P alone carries zero ticket-side rows
+# under EITHER ticket-side fishery column (CFEC.Permit.Fishery and
+# Permit.Fishery) across the whole 1991-2021 panel, exactly the pattern
+# S04P showed. This is a decision to stop treating a known-untrustworthy
+# measurement as if it were data, not a claim that these fisheries are
+# actually unfished at this rate, chapter3_writeup.tex should say so
+# explicitly wherever Table 3's wedge is discussed. CHECK the
+# gear_ghost_by_code diagnostic printed alongside the lifetime footprint
+# check on every future run for any other gear digit developing the same
+# signature before assuming this list stays at two entries.
+EXCLUDED_GEAR_DIGITS_DATA_GAP <- c("04", "08")
+
 # ---- small helpers ---------------------------------------------------
 
 strip_fishery_space <- function(x) str_replace_all(x, " ", "")

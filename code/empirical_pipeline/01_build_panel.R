@@ -224,6 +224,35 @@ permit_register_raw <- permit_register_raw %>%
   filter(!(fishery.gear.digits %in% JUNK_GEAR_CODES)) %>%
   select(-fishery.gear.digits)
 
+# Data-gap gear exclusion, separate from the junk-gear-code filter above and
+# for a different reason, see EXCLUDED_GEAR_DIGITS_DATA_GAP's definition in
+# 00_setup.R for the full evidence trail (CFEC Report 25-4N citation, the
+# ~73% lifetime ghost-holder rate, the S08P total ticket-side absence).
+# These are real, valid, often major fisheries, the register side of this
+# panel is trustworthy for them (permit counts matched CFEC's own published
+# figures closely), it is specifically the FISHED side that cannot be
+# trusted for them in this extract. Excluding them here means Table 3's
+# wedge, and everything downstream that treats a permit as "held"
+# (Table 1, Table 2's vessel-ID-missing share, the turnover/activation
+# scripts), is no longer computed on a population known to be unmeasurable
+# rather than silently pooling it into numbers that get reported as fact.
+# This does NOT touch vessel-level H-bar/H_LR/Phi, those are built from the
+# fished side only and never reference permit_register_raw at all.
+permit_register_raw <- permit_register_raw %>%
+  mutate(fishery.gear.digits.datagap = substr(Fishery, 2, 3))
+
+cat("\nPermit register rows excluded for a known register-vs-ticket data gap (gear",
+    paste(EXCLUDED_GEAR_DIGITS_DATA_GAP, collapse = ", "), "):",
+    sum(permit_register_raw$fishery.gear.digits.datagap %in% EXCLUDED_GEAR_DIGITS_DATA_GAP),
+    "of", nrow(permit_register_raw), "\n")
+cat("Fishery codes affected (up to 20 shown):\n")
+print(permit_register_raw %>% filter(fishery.gear.digits.datagap %in% EXCLUDED_GEAR_DIGITS_DATA_GAP) %>%
+        count(Fishery, sort = TRUE) %>% head(20))
+
+permit_register_raw <- permit_register_raw %>%
+  filter(!(fishery.gear.digits.datagap %in% EXCLUDED_GEAR_DIGITS_DATA_GAP)) %>%
+  select(-fishery.gear.digits.datagap)
+
 # has.vessel.id is FALSE for a permit register row with no vessel attached
 # (NA, 0, or 99999) or an owner-only holding. permit_link.R drops these
 # outright. Kept here because Table 3 (04_table3.R) needs both versions and
@@ -1237,6 +1266,32 @@ cat("Never once a permit holder on any ticket, any year, any fishery:",
 cat("Never once a permit holder OR a vessel owner on any ticket, any year, any fishery (true zero footprint):",
     sum(!lifetime_activity$ever.permit.holder & !lifetime_activity$ever.vessel.owner),
     "(", round(100 * mean(!lifetime_activity$ever.permit.holder & !lifetime_activity$ever.vessel.owner), 2), "% )\n")
+
+# Diagnostic, generalizing the gear-04 check just above. Gear "08" looked
+# like a junk code by description alone earlier in this file and turned out
+# to be a real, active gear (fish wheel), so guessing gear-by-gear from
+# CFEC's dictionary descriptions is exactly the wrong way to decide what
+# else belongs on an exclusion list, gear-code meanings are not standardized
+# across species letters in CFEC's system anyway. This instead runs the
+# identical lifetime ghost-holder test across EVERY 2-digit gear code
+# actually present in the register, so any other code with the same
+# near-total "never once appears anywhere, any role, any year" signature
+# gear 04 has shows up on evidence, not assumption.
+gear_ghost_by_code <- permit_register_raw %>%
+  mutate(gear.digits = substr(Fishery, 2, 3)) %>%
+  distinct(File.Number, gear.digits) %>%
+  mutate(
+    ever.permit.holder = File.Number %in% catch_data_temp$CFEC.Permit.Holder.Filing.Number,
+    ever.vessel.owner  = File.Number %in% catch_data_temp$CFEC.Vessel.Owner.Filing.Number,
+    ghost = !ever.permit.holder & !ever.vessel.owner
+  ) %>%
+  group_by(gear.digits) %>%
+  summarise(n.holders = n(), ghost.share = round(mean(ghost), 4), .groups = "drop") %>%
+  filter(n.holders >= 30) %>%
+  arrange(desc(ghost.share))
+
+cat("\n===== Lifetime ghost-holder share BY GEAR DIGIT, every code with at least 30 distinct holders =====\n")
+print(gear_ghost_by_code, n = Inf)
 
 # Attribute check on the population chapter3_writeup.tex Section 3 calls the
 # clearest case of holding without fishing, no vessel on record for this
