@@ -117,11 +117,25 @@ JUNK_GEAR_CODES <- c("13", "77", "99")
 # S04P showed. This is a decision to stop treating a known-untrustworthy
 # measurement as if it were data, not a claim that these fisheries are
 # actually unfished at this rate, chapter3_writeup.tex should say so
-# explicitly wherever Table 3's wedge is discussed. CHECK the
-# gear_ghost_by_code diagnostic printed alongside the lifetime footprint
-# check on every future run for any other gear digit developing the same
-# signature before assuming this list stays at two entries.
-EXCLUDED_GEAR_DIGITS_DATA_GAP <- c("04", "08")
+# explicitly wherever Table 3's wedge is discussed. "18" was ADDED on
+# 2026-09-16, the gear_ghost_by_code diagnostic (01_build_panel.R Section 7)
+# found a 70.1% lifetime ghost rate for it, comparable to what 04 and 08
+# showed, and every fishery code under gear "18" in both the current and
+# historical CFEC dictionary is SHOVEL-harvested clams (R 18B, statewide,
+# 1975-2021, plus two smaller historical variants), a hand-tool, no-vessel
+# method exactly like the other two. Gear "12" (dive/hand-pick, herring
+# spawn on kelp, includes L12T) also runs elevated but was deliberately
+# NOT added here, that is the same vessel-less category chapter3_writeup.tex
+# already documents as a genuine example rather than a data problem, and its
+# unused share (0.97) is visibly less extreme than the three excluded gears
+# were before exclusion (0.997+). Gears "02" (beach seine, partly
+# vessel-based) and "05" (hand troll, fully vessel-based) also run
+# moderately elevated (34-36%) without a clean no-vessel-needed story behind
+# them, left in for now for lack of evidence, not because they were checked
+# and cleared. CHECK the gear_ghost_by_code diagnostic on every future run
+# for any other gear digit developing the same signature before assuming
+# this list is complete.
+EXCLUDED_GEAR_DIGITS_DATA_GAP <- c("04", "08", "18")
 
 # ---- small helpers ---------------------------------------------------
 
