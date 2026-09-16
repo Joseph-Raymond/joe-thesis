@@ -253,6 +253,23 @@ permit_register_raw <- permit_register_raw %>%
   filter(!(fishery.gear.digits.datagap %in% EXCLUDED_GEAR_DIGITS_DATA_GAP)) %>%
   select(-fishery.gear.digits.datagap)
 
+# Non-harvest fishery code exclusion, a third and different reason again,
+# see NON_HARVEST_FISHERY_CODES's definition in 00_setup.R for the full
+# evidence trail. These five codes are not harvest permits at all (a vessel
+# entry/moratorium slot in certain limitation programs, held separately
+# from the actual harvest permit under the fishery's base code), so no fish
+# ticket was ever going to exist under them and held-vs-fished is not a
+# meaningful comparison here the way it is for gear 04/08/18 above. This is
+# why E91QV, W22BV, and W2ABV sat at a 1.00 unused share in
+# table3_unused_share_by_fishery.tex even after that fix.
+cat("\nPermit register rows on a non-harvest fishery code (",
+    paste(NON_HARVEST_FISHERY_CODES, collapse = ", "), "):",
+    sum(permit_register_raw$Fishery %in% NON_HARVEST_FISHERY_CODES),
+    "of", nrow(permit_register_raw), "\n")
+
+permit_register_raw <- permit_register_raw %>%
+  filter(!(Fishery %in% NON_HARVEST_FISHERY_CODES))
+
 # has.vessel.id is FALSE for a permit register row with no vessel attached
 # (NA, 0, or 99999) or an owner-only holding. permit_link.R drops these
 # outright. Kept here because Table 3 (04_table3.R) needs both versions and
@@ -1061,6 +1078,68 @@ held_owner_fishery <- permit_register_raw %>%
   filter(!is.na(File.Number)) %>%
   group_by(File.Number, Batch.Year, Fishery) %>%
   summarise(held = TRUE, held.vessel.matched = any(has.vessel.id), .groups = "drop")
+
+# Fleet-wide fishery-year closure check, a finer test than the pooled
+# unused.share in 04b_table_unused_by_fishery.R. That statistic asks "did
+# THIS REGISTERED HOLDER fish THIS fishery in THIS year", pooled across all
+# 31 years. This asks a different question, "did ANYONE, held or not, land
+# anything under this fishery code in this specific year", independent of
+# the register entirely. A fishery genuinely closed (or not yet opened, or
+# already retired) in a given year cannot function as backup capacity that
+# year no matter how the held side is measured, and pooling years together
+# can hide exactly this, a fishery active for half the panel and dead for
+# the other half would not necessarily stand out in the pooled number.
+# fished_vessel_fishery_year is pure ticket-side revenue (Section 2, built
+# from catch_data_temp before any register join), so "fleet.revenue" below
+# is not conditioned on held status at all. held_owner_fishery already
+# reflects every current exclusion (JUNK_GEAR_CODES, EXCLUDED_GEAR_DIGITS_
+# DATA_GAP, NON_HARVEST_FISHERY_CODES, all applied to permit_register_raw
+# in Section 1), so this only looks at fisheries currently left in.
+fishery_year_landings <- fished_vessel_fishery_year %>%
+  group_by(Fishery, Batch.Year) %>%
+  summarise(
+    fleet.revenue     = sum(revenue, na.rm = TRUE),
+    n.vessels.landing = n_distinct(Vessel.ADFG.Number[revenue > 0]),
+    .groups = "drop"
+  )
+
+fishery_year_activity <- held_owner_fishery %>%
+  distinct(Fishery, Batch.Year) %>%
+  left_join(fishery_year_landings, by = c("Fishery", "Batch.Year")) %>%
+  mutate(
+    fleet.revenue     = replace_na(fleet.revenue, 0),
+    n.vessels.landing = replace_na(n.vessels.landing, 0L),
+    fleet.wide.closed = fleet.revenue <= 0
+  )
+
+# A fishery held in only 1-2 distinct years can't show a meaningful "share
+# of years closed", floor matches the spirit of 04b's MIN_HELD_FOR_RANKING
+# without reusing that name, this is counting distinct YEARS held, not
+# owner-year rows.
+MIN_YEARS_HELD_FOR_CLOSURE_CHECK <- 3
+
+fishery_closure_summary <- fishery_year_activity %>%
+  group_by(Fishery) %>%
+  summarise(
+    n.years.held         = n(),
+    n.years.fleet.closed = sum(fleet.wide.closed),
+    closed.year.share    = n.years.fleet.closed / n.years.held,
+    .groups = "drop"
+  ) %>%
+  filter(n.years.held >= MIN_YEARS_HELD_FOR_CLOSURE_CHECK)
+
+cat("\n===== Fisheries where EVERY held year saw zero fleet-wide landings (n.years.held >=",
+    MIN_YEARS_HELD_FOR_CLOSURE_CHECK, ") =====\n")
+print(fishery_closure_summary %>% filter(closed.year.share == 1) %>% arrange(desc(n.years.held)), n = Inf)
+
+cat("\n===== Fisheries with a MIX of active and fleet-wide-closed years (partial closure, n.years.held >=",
+    MIN_YEARS_HELD_FOR_CLOSURE_CHECK, ") =====\n")
+print(fishery_closure_summary %>% filter(closed.year.share > 0, closed.year.share < 1) %>%
+        arrange(desc(closed.year.share)), n = 30)
+
+cat("\nTotal held (Fishery, Batch.Year) cells:", nrow(fishery_year_activity),
+    ", with zero fleet-wide landings from anyone:", sum(fishery_year_activity$fleet.wide.closed),
+    "(", round(100 * mean(fishery_year_activity$fleet.wide.closed), 1), "% )\n")
 
 fished_owner_fishery_year <- fished_vessel_fishery_year %>%
   filter(!is.na(File.Number)) %>%

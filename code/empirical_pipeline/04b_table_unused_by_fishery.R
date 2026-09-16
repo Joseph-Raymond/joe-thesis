@@ -30,12 +30,38 @@ fishery_unused_full <- owner_fishery_year %>%
     n.held             = n(),
     n.unfished         = sum(!fished),
     n.fished           = sum(fished),
+    n.held.no.vessel   = sum(!held.vessel.matched),
     n.distinct.owners  = n_distinct(File.Number),
     n.distinct.years   = n_distinct(Batch.Year),
     unused.share       = n.unfished / n.held,
     .groups = "drop"
   ) %>%
   filter(n.held >= MIN_HELD_FOR_RANKING)
+
+# Same population as above (fisheries kept in the register as of this run,
+# so gear 04/08/18 and the five non-harvest codes never appear here at all),
+# but ranked by raw COUNT rather than share. A fishery can carry a modest
+# unused SHARE and still be the largest single contributor to the gap in
+# absolute owner-years if it is simply a big fishery, share and count answer
+# different questions and neither implies the other. Two separate counts
+# printed, held-but-never-fished (the Table 3 concept, "unmatched" in the
+# sense the fished side never shows this owner) and held-with-no-vessel-ID
+# (the held.vessel.matched concept, "unmatched" in the sense the register
+# side never attached a real vessel to this owner's holding). A fishery can
+# rank high on one and not the other, they are counting different things.
+cat("\n===== Held fisheries ranked by raw count of held-but-never-fished owner-years (held >=",
+    MIN_HELD_FOR_RANKING, ") =====\n")
+print(fishery_unused_full %>% arrange(desc(n.unfished)) %>%
+        select(Fishery, n.held, n.unfished, unused.share, n.distinct.owners) %>%
+        mutate(unused.share = round(unused.share, 3)),
+      n = 20)
+
+cat("\n===== Held fisheries ranked by raw count of held-with-no-vessel-ID owner-years (held >=",
+    MIN_HELD_FOR_RANKING, ") =====\n")
+print(fishery_unused_full %>% mutate(no.vessel.share = round(n.held.no.vessel / n.held, 3)) %>%
+        arrange(desc(n.held.no.vessel)) %>%
+        select(Fishery, n.held, n.held.no.vessel, no.vessel.share, n.distinct.owners),
+      n = 20)
 
 # Diagnostic, unrounded and untruncated. The rendered table below prints
 # sprintf("%.2f", ...) and keeps only the top 15, so a fishery at say 0.997

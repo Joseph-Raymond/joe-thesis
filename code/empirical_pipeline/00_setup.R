@@ -135,6 +135,27 @@ JUNK_GEAR_CODES <- c("13", "77", "99")
 # and cleared. CHECK the gear_ghost_by_code diagnostic on every future run
 # for any other gear digit developing the same signature before assuming
 # this list is complete.
+# Different problem again. Not a gear digit at all, this table lives in
+# 04b_table_unused_by_fishery.R showing three codes stuck at a 1.00 unused
+# share (E91QV, W22BV, W2ABV), each traced individually against
+# Historical CFEC Fishery Codes.txt on 2026-09-16. All three carry a Status
+# field of "Vessel Entry Permit" or "Vessel Moratorium" rather than an
+# ordinary harvest status (Limited, Interim-Use), and the same grep turned
+# up two more with that exact status not yet seen at the top of any ranking
+# (W22HV, W2BBV). All five are historical only (expired 1997-2020, none in
+# the current dictionary) and all five are a companion permit certain
+# vessel-limitation programs (Bering Sea hair crab, weathervane scallop)
+# issue to a VESSEL as a separate ownership/eligibility slot, distinct from
+# the harvest permit a person holds under that fishery's base code (the
+# harvest for W22BV happens under "W22B", not W22BV itself). No fish ticket
+# was ever going to record revenue against the "V" code, so held-vs-fished
+# is not measuring a gap for these at all, it is comparing a person's
+# holding of an administrative slot against a harvest record that cannot
+# exist under that code by construction. Excluded for the same underlying
+# reason JUNK_GEAR_CODES is (not a real harvest permit), just identified by
+# exact code rather than gear digit since these five don't share one.
+NON_HARVEST_FISHERY_CODES <- c("E91QV", "W22BV", "W22HV", "W2ABV", "W2BBV")
+
 EXCLUDED_GEAR_DIGITS_DATA_GAP <- c("04", "08", "18")
 
 # ---- small helpers ---------------------------------------------------
