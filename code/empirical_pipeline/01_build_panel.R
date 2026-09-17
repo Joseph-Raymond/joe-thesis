@@ -735,8 +735,28 @@ fleet_mean_revenue <- vessel_fishery_year %>%
   group_by(Batch.Year, Fishery) %>%
   summarise(fleet_mean_revenue = mean(revenue, na.rm = TRUE), n_active = n(), .groups = "drop")
 
+# fishery.year.active, TRUE if ANY vessel anywhere landed anything under
+# this Fishery in this Batch.Year, independent of who held what. Every row
+# in fleet_mean_revenue above already required at least one fished vessel to
+# exist, so distinct(Batch.Year, Fishery) from it is exactly the set of
+# fishery-years with real fleet-wide activity. Built once here and reused
+# unchanged for owner_fishery_year in Section 7, so both grains share one
+# definition of "this permit was a real, fishable option that year" rather
+# than each computing its own. Added because a permit for a fishery nobody
+# in the fleet ever lands under (D91H, Cook Inlet Dungeness crab, is the
+# case that prompted this, 1,756 register rows, 100 owners, zero ticket-side
+# rows in any year) is not a genuine backup option no matter who nominally
+# holds it, counting it the same as a fishable-but-idle permit overstates
+# ex-ante portfolio breadth and the held-vs-fished wedge alike. See
+# 04_table3.R's "fishable fishery-years only" rows.
+fishery_year_active_lookup <- fleet_mean_revenue %>%
+  distinct(Batch.Year, Fishery) %>%
+  mutate(fishery.year.active = TRUE)
+
 vessel_fishery_year <- vessel_fishery_year %>%
-  left_join(fleet_mean_revenue, by = c("Batch.Year", "Fishery"))
+  left_join(fleet_mean_revenue, by = c("Batch.Year", "Fishery")) %>%
+  left_join(fishery_year_active_lookup, by = c("Batch.Year", "Fishery")) %>%
+  mutate(fishery.year.active = replace_na(fishery.year.active, FALSE))
 
 # ============================================================================
 # 4b. Vessel x permit-serial x year panel (permit-stacking-aware alternative)
@@ -820,12 +840,24 @@ vessel_year <- vessel_fishery_year %>%
     forgone.value      = sum(replace_na(fleet_mean_revenue[held & !fished], 0)),
     vessel.year.rev    = sum(revenue, na.rm = TRUE),
     hhi                = sum((revenue[fished] / sum(revenue[fished]))^2, na.rm = TRUE),
+    # "Active" variants, held restricted to fishery-years with real fleet-
+    # wide activity from anyone (fishery.year.active, Section 4). See
+    # 04_table3.R's "fishable fishery-years only" rows for why, an unfished
+    # permit in a fishery nobody landed anything under that year is not a
+    # real held option.
+    n.held.fishery.active     = sum(held & fishery.year.active),
+    n.unfished.fishery.active = sum(held & fishery.year.active & !fished),
+    forgone.value.active      = sum(replace_na(fleet_mean_revenue[held & fishery.year.active & !fished], 0)),
     .groups = "drop"
   ) %>%
   mutate(
     unused.count.share = if_else(n.held.fishery > 0, n.unfished.fishery / n.held.fishery, NA_real_),
     unused.value.share = if_else((forgone.value + fished.value) > 0,
-                                  forgone.value / (forgone.value + fished.value), NA_real_)
+                                  forgone.value / (forgone.value + fished.value), NA_real_),
+    unused.count.share.active = if_else(n.held.fishery.active > 0,
+                                         n.unfished.fishery.active / n.held.fishery.active, NA_real_),
+    unused.value.share.active = if_else((forgone.value.active + fished.value) > 0,
+                                         forgone.value.active / (forgone.value.active + fished.value), NA_real_)
   ) %>%
   # Adds the permit-serial-level count columns from Section 4b alongside the
   # Fishery-class-level ones above, unused.count.share (fishery-class) versus
@@ -1089,6 +1121,27 @@ held_owner_fishery <- permit_register_raw %>%
   group_by(File.Number, Batch.Year, Fishery) %>%
   summarise(held = TRUE, held.vessel.matched = any(has.vessel.id), .groups = "drop")
 
+fished_owner_fishery_year <- fished_vessel_fishery_year %>%
+  filter(!is.na(File.Number)) %>%
+  group_by(File.Number, Batch.Year, Fishery) %>%
+  summarise(revenue = sum(revenue, na.rm = TRUE), .groups = "drop")
+
+owner_fishery_year <- held_owner_fishery %>%
+  full_join(fished_owner_fishery_year, by = c("File.Number", "Batch.Year", "Fishery")) %>%
+  mutate(
+    held   = replace_na(held, FALSE),
+    held.vessel.matched = replace_na(held.vessel.matched, FALSE),
+    fished = !is.na(revenue) & revenue > 0,
+    revenue = replace_na(revenue, 0)
+  ) %>%
+  deflate("revenue", deflator) %>%
+  # fishery.year.active reused unchanged from Section 4's
+  # fishery_year_active_lookup, see that definition for the full reasoning.
+  # Same underlying fishery-year activity fact either way, so vessel and
+  # owner grain share one definition rather than each computing its own.
+  left_join(fishery_year_active_lookup, by = c("Batch.Year", "Fishery")) %>%
+  mutate(fishery.year.active = replace_na(fishery.year.active, FALSE))
+
 # Fleet-wide fishery-year closure check, a finer test than the pooled
 # unused.share in 04b_table_unused_by_fishery.R. That statistic asks "did
 # THIS REGISTERED HOLDER fish THIS fishery in THIS year", pooled across all
@@ -1099,28 +1152,10 @@ held_owner_fishery <- permit_register_raw %>%
 # year no matter how the held side is measured, and pooling years together
 # can hide exactly this, a fishery active for half the panel and dead for
 # the other half would not necessarily stand out in the pooled number.
-# fished_vessel_fishery_year is pure ticket-side revenue (Section 2, built
-# from catch_data_temp before any register join), so "fleet.revenue" below
-# is not conditioned on held status at all. held_owner_fishery already
-# reflects every current exclusion (JUNK_GEAR_CODES, EXCLUDED_GEAR_DIGITS_
-# DATA_GAP, NON_HARVEST_FISHERY_CODES, all applied to permit_register_raw
-# in Section 1), so this only looks at fisheries currently left in.
-fishery_year_landings <- fished_vessel_fishery_year %>%
-  group_by(Fishery, Batch.Year) %>%
-  summarise(
-    fleet.revenue     = sum(revenue, na.rm = TRUE),
-    n.vessels.landing = n_distinct(Vessel.ADFG.Number[revenue > 0]),
-    .groups = "drop"
-  )
-
-fishery_year_activity <- held_owner_fishery %>%
-  distinct(Fishery, Batch.Year) %>%
-  left_join(fishery_year_landings, by = c("Fishery", "Batch.Year")) %>%
-  mutate(
-    fleet.revenue     = replace_na(fleet.revenue, 0),
-    n.vessels.landing = replace_na(n.vessels.landing, 0L),
-    fleet.wide.closed = fleet.revenue <= 0
-  )
+# held_owner_fishery already reflects every current exclusion
+# (JUNK_GEAR_CODES, EXCLUDED_GEAR_DIGITS_DATA_GAP, NON_HARVEST_FISHERY_CODES,
+# all applied to permit_register_raw in Section 1), so this only looks at
+# fisheries currently left in.
 
 # A fishery held in only 1-2 distinct years can't show a meaningful "share
 # of years closed", floor matches the spirit of 04b's MIN_HELD_FOR_RANKING
@@ -1128,11 +1163,15 @@ fishery_year_activity <- held_owner_fishery %>%
 # owner-year rows.
 MIN_YEARS_HELD_FOR_CLOSURE_CHECK <- 3
 
-fishery_closure_summary <- fishery_year_activity %>%
+fishery_year_held_cells <- owner_fishery_year %>%
+  filter(held) %>%
+  distinct(Fishery, Batch.Year, fishery.year.active)
+
+fishery_closure_summary <- fishery_year_held_cells %>%
   group_by(Fishery) %>%
   summarise(
     n.years.held         = n(),
-    n.years.fleet.closed = sum(fleet.wide.closed),
+    n.years.fleet.closed = sum(!fishery.year.active),
     closed.year.share    = n.years.fleet.closed / n.years.held,
     .groups = "drop"
   ) %>%
@@ -1147,24 +1186,9 @@ cat("\n===== Fisheries with a MIX of active and fleet-wide-closed years (partial
 print(fishery_closure_summary %>% filter(closed.year.share > 0, closed.year.share < 1) %>%
         arrange(desc(closed.year.share)), n = 30)
 
-cat("\nTotal held (Fishery, Batch.Year) cells:", nrow(fishery_year_activity),
-    ", with zero fleet-wide landings from anyone:", sum(fishery_year_activity$fleet.wide.closed),
-    "(", round(100 * mean(fishery_year_activity$fleet.wide.closed), 1), "% )\n")
-
-fished_owner_fishery_year <- fished_vessel_fishery_year %>%
-  filter(!is.na(File.Number)) %>%
-  group_by(File.Number, Batch.Year, Fishery) %>%
-  summarise(revenue = sum(revenue, na.rm = TRUE), .groups = "drop")
-
-owner_fishery_year <- held_owner_fishery %>%
-  full_join(fished_owner_fishery_year, by = c("File.Number", "Batch.Year", "Fishery")) %>%
-  mutate(
-    held   = replace_na(held, FALSE),
-    held.vessel.matched = replace_na(held.vessel.matched, FALSE),
-    fished = !is.na(revenue) & revenue > 0,
-    revenue = replace_na(revenue, 0)
-  ) %>%
-  deflate("revenue", deflator)
+cat("\nTotal held (Fishery, Batch.Year) cells:", nrow(fishery_year_held_cells),
+    ", with zero fleet-wide landings from anyone:", sum(!fishery_year_held_cells$fishery.year.active),
+    "(", round(100 * mean(!fishery_year_held_cells$fishery.year.active), 1), "% )\n")
 
 fleet_mean_revenue_owner <- owner_fishery_year %>%
   filter(fished) %>%
@@ -1215,6 +1239,15 @@ owner_year <- owner_fishery_year %>%
     n.held.fishery.matched     = sum(held & held.vessel.matched),
     n.unfished.fishery.matched = sum(held & held.vessel.matched & !fished),
     forgone.value.matched      = sum(replace_na(fleet_mean_revenue[held & held.vessel.matched & !fished], 0)),
+    # "Active" variants, held restricted to fishery-years with real fleet-
+    # wide activity from anyone (fishery.year.active, Section 4/joined onto
+    # owner_fishery_year above). See 04_table3.R's "fishable fishery-years
+    # only" rows, the D91H case (a real Cook Inlet Dungeness crab permit,
+    # zero ticket-side presence in 30 years) is why this exists, a permit
+    # for a fishery nobody ever lands under is not a genuine backup option.
+    n.held.fishery.active     = sum(held & fishery.year.active),
+    n.unfished.fishery.active = sum(held & fishery.year.active & !fished),
+    forgone.value.active      = sum(replace_na(fleet_mean_revenue[held & fishery.year.active & !fished], 0)),
     owner.year.rev     = sum(revenue, na.rm = TRUE),
     # Owner-level mirror of vessel_year's own hhi column (Section 5, same
     # formula), added purely so 01b_build_rolling_panel_owner.R can run the
@@ -1232,7 +1265,11 @@ owner_year <- owner_fishery_year %>%
     unused.count.share.matched = if_else(n.held.fishery.matched > 0,
                                           n.unfished.fishery.matched / n.held.fishery.matched, NA_real_),
     unused.value.share.matched = if_else((forgone.value.matched + fished.value) > 0,
-                                          forgone.value.matched / (forgone.value.matched + fished.value), NA_real_)
+                                          forgone.value.matched / (forgone.value.matched + fished.value), NA_real_),
+    unused.count.share.active = if_else(n.held.fishery.active > 0,
+                                         n.unfished.fishery.active / n.held.fishery.active, NA_real_),
+    unused.value.share.active = if_else((forgone.value.active + fished.value) > 0,
+                                         forgone.value.active / (forgone.value.active + fished.value), NA_real_)
   ) %>%
   left_join(owner_year_permit_level, by = c("File.Number", "Batch.Year"))
 
