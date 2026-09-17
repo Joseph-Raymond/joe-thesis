@@ -83,8 +83,12 @@ figure_unused_scatter <- fishery_scatter_data %>%
   scale_size_continuous(name = "Unfished\nowner-years", labels = scales::comma) +
   labs(
     title = "Held owner-years versus unused share, by fishery",
+    # Split across two lines rather than relying on a wider device, the
+    # single-line version ran off the right edge of the rendered PNG at
+    # width = 9in, ggplot's title/subtitle does not auto-wrap on its own.
     subtitle = paste0("Fisheries held at least ", format(MIN_HELD_FOR_RANKING, big.mark = ","),
-                       " owner-years, 1991-2021 pooled, bubble size is the raw count of unfished owner-years"),
+                       " owner-years, 1991-2021 pooled\n",
+                       "Bubble size is the raw count of unfished owner-years"),
     x = "Held owner-years (log scale)", y = "Unused share (held but unfished)"
   ) +
   theme_minimal()
