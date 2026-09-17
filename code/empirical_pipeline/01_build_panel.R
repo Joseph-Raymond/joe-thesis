@@ -1047,7 +1047,17 @@ cat("vessel_period_summary rows:", nrow(vessel_period_summary),
 # needs strip_fishery_space() applied (CFEC.Permit.Fishery, e.g. "S 03T"), a
 # claim confirmed true below (zero register-side codes carry whitespace),
 # so a whitespace mismatch is not the explanation for what follows.
-check_codes <- c("S04T", "S04X", "S04P", "S08P", "S03T")
+# D91H added 2026-09-17, 04b_table_unused_by_fishery.R found it at exactly
+# 1.00 unused owner-share, 1,755 owner-years across all 30 held years, 100
+# distinct owners, an order of magnitude bigger than the other five codes
+# that share its 1.00 share (A11A, D09H, F06B, H7DK, K09X). Unlike those
+# five, D91H (Dungeness crab, pot gear, Cook Inlet) is a real, currently
+# licensed "Limited" status fishery per Current CFEC Fishery Codes.txt, not
+# an obviously closed or administrative one, so this print is here to see
+# whether it shows the same total ticket-side absence gear 04/08/18 did
+# (a linkage problem) or whether the fleet-wide closure check further below
+# clears it as a genuine closure instead.
+check_codes <- c("S04T", "S04X", "S04P", "S08P", "S03T", "D91H")
 cat("\n===== Register-side vs ticket-side Fishery code volume, flagged codes =====\n")
 for (code in check_codes) {
   register_rows <- permit_register_raw %>% filter(Fishery == code)
