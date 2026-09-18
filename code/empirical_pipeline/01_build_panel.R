@@ -534,9 +534,48 @@ catch_data_temp <- catch_data_temp %>%
 if ("CFEC.Permit.Holder.Residency" %in% names(catch_data_temp)) {
   cat("\n===== CFEC.Permit.Holder.Residency distribution, fish ticket rows =====\n")
   print(catch_data_temp %>% count(CFEC.Permit.Holder.Residency, sort = TRUE))
+
+  # File.Number (permit holder) level residency lookup, built here from
+  # every ticket row's own Residency value rather than from
+  # fished_vessel_fishery_year below, which collapses to one row per
+  # Vessel.ADFG.Number x Batch.Year x Fishery and would lose ticket-level
+  # Residency along the way. The modal (most frequent) value across a
+  # File.Number's entire ticket history, not a single year, is used as that
+  # owner's residency, so an owner-year with zero tickets (held but
+  # entirely unfished that year) can still carry a residency value as long
+  # as the same File.Number fished in at least one OTHER year of the panel,
+  # which a year-by-year join could not do. The tradeoff is a holder who
+  # genuinely changes residency mid-panel gets pinned to one value
+  # everywhere, see the mover count printed below for how often that binds.
+  owner_residency_ticket_counts <- catch_data_temp %>%
+    filter(!is.na(CFEC.Permit.Holder.Filing.Number), !is.na(CFEC.Permit.Holder.Residency)) %>%
+    count(File.Number = CFEC.Permit.Holder.Filing.Number, CFEC.Permit.Holder.Residency,
+          name = "n.tickets")
+
+  owner_residency_lookup <- owner_residency_ticket_counts %>%
+    group_by(File.Number) %>%
+    slice_max(n.tickets, n = 1, with_ties = FALSE) %>%
+    ungroup() %>%
+    rename(residency = CFEC.Permit.Holder.Residency) %>%
+    select(File.Number, residency)
+
+  n_residency_movers <- owner_residency_ticket_counts %>%
+    distinct(File.Number, CFEC.Permit.Holder.Residency) %>%
+    count(File.Number) %>%
+    filter(n > 1) %>%
+    nrow()
+
+  cat("\n===== Owner residency lookup (File.Number level, modal value across all ticket rows) =====\n")
+  cat("Distinct File.Number with a residency observation:", nrow(owner_residency_lookup), "\n")
+  cat("Of those, File.Number with more than one distinct residency value across the panel",
+      "(movers, or noisy/inconsistent reporting):", n_residency_movers,
+      "(", round(100 * n_residency_movers / nrow(owner_residency_lookup), 1), "% )\n")
+  print(owner_residency_lookup %>% count(residency, sort = TRUE))
 } else {
+  owner_residency_lookup <- tibble(File.Number = character(), residency = character())
   warning("CFEC.Permit.Holder.Residency column not found on catch_data_temp, no residency breakdown ",
-          "printed. CHECK the real column name against the server copy of catch_data_temp.rdata.")
+          "printed and owner_residency_lookup is empty (every owner's residency will be NA). ",
+          "CHECK the real column name against the server copy of catch_data_temp.rdata.")
 }
 
 fished_vessel_fishery_year <- catch_data_temp %>%
@@ -1196,7 +1235,24 @@ fleet_mean_revenue_owner <- owner_fishery_year %>%
   summarise(fleet_mean_revenue = mean(revenue, na.rm = TRUE), .groups = "drop")
 
 owner_fishery_year <- owner_fishery_year %>%
-  left_join(fleet_mean_revenue_owner, by = c("Batch.Year", "Fishery"))
+  left_join(fleet_mean_revenue_owner, by = c("Batch.Year", "Fishery")) %>%
+  # residency, File.Number level, see owner_residency_lookup's own
+  # construction in Section 2 for the modal-value/lifetime-attachment
+  # reasoning. Joined here (not Batch.Year-specific) so every fishery row
+  # for a given owner-year carries the same value.
+  left_join(owner_residency_lookup, by = "File.Number")
+
+# Confound check flagged in chapter3_plan.md, unmatched (no-vessel-ID)
+# permits already skew out-of-state, so a raw residency split of the wedge
+# could just be reading permit-match quality rather than real behavioral
+# heterogeneity. This puts a number on that instead of leaving it
+# qualitative, the match rate among held permits, by residency group.
+cat("\n===== Permit match rate (held.vessel.matched share) by residency, confound check =====\n")
+print(owner_fishery_year %>%
+        filter(held, !is.na(residency)) %>%
+        group_by(residency) %>%
+        summarise(n.held = n(), match.rate = round(mean(held.vessel.matched), 4), .groups = "drop") %>%
+        arrange(desc(n.held)))
 
 # Owner-level permit-serial counts, the Table 3 analogue of Section 4b's
 # vessel-level permit-stacking check. Owner-inclusive ("with" version) only,
@@ -1271,7 +1327,11 @@ owner_year <- owner_fishery_year %>%
     unused.value.share.active = if_else((forgone.value.active + fished.value) > 0,
                                          forgone.value.active / (forgone.value.active + fished.value), NA_real_)
   ) %>%
-  left_join(owner_year_permit_level, by = c("File.Number", "Batch.Year"))
+  left_join(owner_year_permit_level, by = c("File.Number", "Batch.Year")) %>%
+  left_join(owner_residency_lookup, by = "File.Number")
+
+cat("Owner-years with a non-missing residency:", sum(!is.na(owner_year$residency)),
+    "of", nrow(owner_year), "(", round(100 * mean(!is.na(owner_year$residency)), 1), "% )\n")
 
 cat("Mean owner-level unused.count.share (fishery-class):",
     round(mean(owner_year$unused.count.share, na.rm = TRUE), 4),
@@ -1585,7 +1645,7 @@ save(
   owner_fishery_year, owner_year, owner_summary, owner_mean_share, owner_share_panel,
   owner_period_summary,
   period_bounds,
-  match_diag, fleet_mean_revenue, fleet_mean_revenue_owner,
+  match_diag, fleet_mean_revenue, fleet_mean_revenue_owner, owner_residency_lookup,
   MAX_YEAR,
   file = panel_path
 )

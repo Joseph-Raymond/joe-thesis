@@ -23,7 +23,11 @@
 # small administrative/data-gap codes, 04d_ shows every fishery at once so
 # the large fisheries that carry the wedge in absolute terms (bubble size)
 # are visible too, run right after 04c_ since all three share one ranking
-# logic over the same owner_fishery_year population.
+# logic over the same owner_fishery_year population. 04e_ is a different
+# cut of the same Table 3 wedge, split by the owner's residency instead of
+# by fishery, run right after 04d_ for the same "companion to Table 3"
+# reason as the rest of the 04_ group, see its own header for the match-
+# rate confound it checks before reading anything into a residency gap.
 #
 # THIS CANNOT BE RUN LOCALLY, same as every other script in this folder, see
 # 00_setup.R.
@@ -35,6 +39,7 @@ source("code/empirical_pipeline/04_table3.R")
 source("code/empirical_pipeline/04b_table_unused_by_fishery.R")
 source("code/empirical_pipeline/04c_figure_unused_by_fishery_year.R")
 source("code/empirical_pipeline/04d_figure_unused_share_vs_held.R")
+source("code/empirical_pipeline/04e_table_wedge_by_residency.R")
 source("code/empirical_pipeline/05_table4_figure3.R")
 source("code/empirical_pipeline/05_table4_figure3_owner.R")
 source("code/empirical_pipeline/06_within_season_reallocation.R")
