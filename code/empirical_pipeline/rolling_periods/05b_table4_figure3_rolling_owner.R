@@ -170,6 +170,58 @@ cat("Rolling standardized share of the decomposed slope loading onto Phi, owner 
 cat("Wrote table4_decomposition_regression_rolling_owner.tex. Table 4-rolling owner (multi-fishery) N -",
     nrow(owner_multi.rolling), ", distinct owners -", n_distinct(owner_multi.rolling$File.Number), "\n")
 
+# ----------------------------------------------------------------------
+# Table 4-rolling (owner), residency-controlled companion. Rolling-window
+# analogue of 05_table4_figure3_owner.R's own residency-controlled
+# companion, whether the H_LR/Phi coefficients are robust to adding the
+# owner's residency. residency is time-invariant per owner (lifetime-
+# modal, joined in 01b_build_rolling_panel_owner.R Section 10), so it
+# carries the same value into every window the same owner appears in,
+# this is not tracking a within-panel residency change. A separate
+# companion table, not a replacement, same reason as the lifetime
+# version, an owner with no residency observation would otherwise be
+# silently dropped from the main sample the moment residency entered the
+# formula. Same reference-level note as the lifetime version, feols
+# defaults to alphabetical ("N", nonresident).
+# ----------------------------------------------------------------------
+
+owner_multi_resid.rolling <- owner_multi.rolling %>% filter(!is.na(residency))
+
+cat("Table 4-rolling (owner), residency-controlled sample -", nrow(owner_multi_resid.rolling),
+    "of", nrow(owner_multi.rolling), "multi-fishery owner-windows (",
+    round(100 * nrow(owner_multi_resid.rolling) / nrow(owner_multi.rolling), 1), "% )\n")
+print(owner_multi_resid.rolling %>% count(residency, sort = TRUE))
+
+m_baseline_resid_roll_owner   <- feols(rev.cv ~ H_bar + residency | prime.fishery.window + window.start,
+                                        data = owner_multi_resid.rolling, cluster = ~File.Number + window.start)
+m_decomposed_resid_roll_owner <- feols(rev.cv ~ H_LR + Phi + residency | prime.fishery.window + window.start,
+                                        data = owner_multi_resid.rolling, cluster = ~File.Number + window.start)
+
+owner_std_resid.rolling <- owner_multi_resid.rolling %>%
+  mutate(across(c(rev.cv, H_bar, H_LR, Phi), ~ as.numeric(scale(.x)), .names = "z.{.col}"))
+
+m_baseline_std_resid_roll_owner   <- feols(z.rev.cv ~ z.H_bar + residency | prime.fishery.window + window.start,
+                                            data = owner_std_resid.rolling, cluster = ~File.Number + window.start)
+m_decomposed_std_resid_roll_owner <- feols(z.rev.cv ~ z.H_LR + z.Phi + residency | prime.fishery.window + window.start,
+                                            data = owner_std_resid.rolling, cluster = ~File.Number + window.start)
+
+etable(
+  m_baseline_resid_roll_owner, m_decomposed_resid_roll_owner,
+  m_baseline_std_resid_roll_owner, m_decomposed_std_resid_roll_owner,
+  headers = c("Baseline (+residency)", "Decomposed (+residency)",
+              "Baseline (z, +residency)", "Decomposed (z, +residency)"),
+  tex = TRUE,
+  file = file.path(table_dir, "table4_decomposition_regression_rolling_owner_residency.tex"),
+  replace = TRUE
+)
+
+print(etable(
+  m_baseline_resid_roll_owner, m_decomposed_resid_roll_owner,
+  m_baseline_std_resid_roll_owner, m_decomposed_std_resid_roll_owner
+))
+
+cat("Wrote table4_decomposition_regression_rolling_owner_residency.tex\n")
+
 # ============================================================================
 # 3. Table 4-pooled-rolling (owner), robustness, specialists included
 # ============================================================================

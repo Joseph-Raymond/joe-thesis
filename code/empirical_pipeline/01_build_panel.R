@@ -1589,6 +1589,10 @@ prime_fishery_owner <- owner_fishery_year %>%
 
 owner_summary <- owner_summary %>%
   left_join(prime_fishery_owner, by = "File.Number") %>%
+  # residency, File.Number level, same lookup as owner_year/owner_fishery_year
+  # above, added here specifically so 05_table4_figure3_owner.R can use it as
+  # a regression control, mirroring why prime_fishery_owner is attached here.
+  left_join(owner_residency_lookup, by = "File.Number") %>%
   mutate(meets.min.years = n.years >= MIN_ACTIVE_YEARS)
 
 cat("owner_summary rows:", nrow(owner_summary),

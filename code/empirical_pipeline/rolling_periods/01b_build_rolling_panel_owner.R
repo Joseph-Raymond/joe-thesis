@@ -88,7 +88,7 @@ source("code/empirical_pipeline/rolling_periods/00b_rolling_periods.R")
 
 if (!exists("owner_year") || !exists("owner_share_panel") || !exists("owner_mean_share") ||
     !exists("owner_summary") || !exists("owner_fishery_year") || !exists("fleet_mean_revenue_owner") ||
-    !exists("MAX_YEAR")) {
+    !exists("owner_residency_lookup") || !exists("MAX_YEAR")) {
   load(panel_path)
 }
 
@@ -338,12 +338,19 @@ owner_window_summary.rolling <- owner_window_eligibility.rolling %>%
   ) %>%
   left_join(owner_lifetime_labels.rolling, by = "File.Number") %>%
   left_join(n_windows_per_owner.rolling, by = "File.Number") %>%
+  # residency, File.Number level, same lookup 01_build_panel.R attaches to
+  # owner_summary/owner_year, joined here so 05b_table4_figure3_rolling_
+  # owner.R can use it as a regression control the same way 05_table4_
+  # figure3_owner.R does at the lifetime grain. Time-invariant per owner
+  # (lifetime-modal, not rebuilt per window), so it carries the same value
+  # into every window the same owner appears in.
+  left_join(owner_residency_lookup, by = "File.Number") %>%
   select(
     File.Number, window.start, window.end, n.years.window,
     H_bar, H_LR, Phi, rev.cv,
     prime.fishery.window, prime.fishery.lifetime,
     n.fisheries.fished.window, is.specialist.window, is.specialist.lifetime,
-    n.windows.owner, inv.window.count
+    n.windows.owner, inv.window.count, residency
   )
 
 cat("owner_window_summary.rolling -", nrow(owner_window_summary.rolling), "rows, ",

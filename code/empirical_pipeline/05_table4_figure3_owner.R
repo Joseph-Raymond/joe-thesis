@@ -166,6 +166,62 @@ etable(
 cat("Wrote table4_decomposition_regression_owner.tex (multi-fishery owners, main text)",
     "and table4_decomposition_regression_pooled_owner.tex (all owners, robustness)\n")
 
+# ----------------------------------------------------------------------
+# Table 4 (owner), residency-controlled companion. Whether the H_LR/Phi
+# coefficients above are robust to adding the owner's residency
+# (CFEC.Permit.Holder.Residency, File.Number-level modal value across
+# that owner's entire ticket history, see 01_build_panel.R Section 2/7
+# for how owner_residency_lookup is built and attached, and
+# 04e_table_wedge_by_residency.R for the descriptive wedge-by-residency
+# comparison this regression is checked against). A separate companion
+# table, not a replacement of the models above, an owner with no ticket
+# anywhere in the whole panel has no residency observation at all
+# (owner_residency_lookup's own construction) and would otherwise be
+# silently dropped from the main Table 4 sample the moment residency
+# entered the formula, feols drops any row with NA in a variable it
+# uses. residency enters as a plain factor, feols's default reference
+# level is alphabetical ("N", nonresident), so the reported coefficients
+# read as the resident and unknown-residency gaps relative to
+# nonresident, not as a meaningful ordered scale.
+# ----------------------------------------------------------------------
+
+owner_multi_resid <- owner_multi %>% filter(!is.na(residency))
+
+cat("Table 4 (owner), residency-controlled sample -", nrow(owner_multi_resid),
+    "of", nrow(owner_multi), "multi-fishery owners (",
+    round(100 * nrow(owner_multi_resid) / nrow(owner_multi), 1), "% )\n")
+print(owner_multi_resid %>% count(residency, sort = TRUE))
+
+model_baseline_resid_owner   <- feols(rev.cv ~ H_bar + residency | prime.fishery,
+                                       data = owner_multi_resid, vcov = "hetero")
+model_decomposed_resid_owner <- feols(rev.cv ~ H_LR + Phi + residency | prime.fishery,
+                                       data = owner_multi_resid, vcov = "hetero")
+
+owner_std_resid <- owner_multi_resid %>%
+  mutate(across(c(rev.cv, H_bar, H_LR, Phi), ~ as.numeric(scale(.x)), .names = "z.{.col}"))
+
+model_baseline_std_resid_owner   <- feols(z.rev.cv ~ z.H_bar + residency | prime.fishery,
+                                           data = owner_std_resid, vcov = "hetero")
+model_decomposed_std_resid_owner <- feols(z.rev.cv ~ z.H_LR + z.Phi + residency | prime.fishery,
+                                           data = owner_std_resid, vcov = "hetero")
+
+etable(
+  model_baseline_resid_owner, model_decomposed_resid_owner,
+  model_baseline_std_resid_owner, model_decomposed_std_resid_owner,
+  headers = c("Baseline (+residency)", "Decomposed (+residency)",
+              "Baseline (z, +residency)", "Decomposed (z, +residency)"),
+  tex = TRUE,
+  file = file.path(table_dir, "table4_decomposition_regression_owner_residency.tex"),
+  replace = TRUE
+)
+
+print(etable(
+  model_baseline_resid_owner, model_decomposed_resid_owner,
+  model_baseline_std_resid_owner, model_decomposed_std_resid_owner
+))
+
+cat("Wrote table4_decomposition_regression_owner_residency.tex\n")
+
 # ============================================================================
 # Figure 3 (owner). Passive buy-and-hold benchmark vs realized CV
 # ============================================================================
