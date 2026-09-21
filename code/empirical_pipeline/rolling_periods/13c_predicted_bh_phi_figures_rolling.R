@@ -251,6 +251,12 @@ overall_summary.rolling <- behavioral_share_floored.rolling %>%
     n.vessels      = n_distinct(Vessel.ADFG.Number),
     mean.share     = mean(behavioral.share),
     median.share   = median(behavioral.share),
+    # On the SAME floored sample as mean.share and the by-quartile rows
+    # below, not levels_summary.rolling's own mean.gap.level (that one is
+    # computed on the broader, unfloored Phi.matched > 0 sample, see its own
+    # comment), so "Overall" here is comparable to every row under it rather
+    # than mixing two different underlying samples in one table.
+    mean.gap.level = mean(behavioral.gap.matched.level),
     mean.share.raw = mean(behavioral.share.raw, na.rm = TRUE)
   )
 
@@ -274,14 +280,26 @@ tau_quartile_summary.rolling <- behavioral_share_floored.rolling %>%
     mean.share     = mean(behavioral.share),
     median.share   = median(behavioral.share),
     mean.share.raw = mean(behavioral.share.raw, na.rm = TRUE),
+    # mean.gap.level added per a methodological review (chapter argument
+    # audit). mean.share is a RATIO, Phi.gap.matched / Phi.matched, and
+    # Phi.matched (the denominator) itself rises with tau (Section 6's own
+    # Table 6 result). A falling ratio across tau quartiles is therefore
+    # mechanically compatible with a FLAT OR RISING absolute behavioral gap,
+    # if the denominator grows faster than the numerator, exactly the kind
+    # of ambiguity a ratio-only table invites a reader to resolve the wrong
+    # way. mean.gap.level is the level version of the same numerator
+    # (Phi.gap.matched alone, un-divided), on the identical floored/by-
+    # quartile rows, so the two can be read side by side rather than the
+    # ratio being read on its own as if it settled the level question too.
+    mean.gap.level = mean(behavioral.gap.matched.level),
     .groups = "drop"
   ) %>%
   mutate(group = paste0("tau Q", tau.quartile)) %>%
-  select(group, n, n.vessels, mean.tau, mean.share, median.share, mean.share.raw)
+  select(group, n, n.vessels, mean.tau, mean.share, median.share, mean.gap.level, mean.share.raw)
 
 behavioral_share_table.rolling <- bind_rows(
   overall_summary.rolling %>% mutate(mean.tau = NA_real_) %>%
-    select(group, n, n.vessels, mean.tau, mean.share, median.share, mean.share.raw),
+    select(group, n, n.vessels, mean.tau, mean.share, median.share, mean.gap.level, mean.share.raw),
   tau_quartile_summary.rolling
 )
 
@@ -303,7 +321,13 @@ cat(
   "check, not a regression, no causal claim is made or implied here. mean.share.raw (SECONDARY) is ",
   "printed alongside for comparison, a large and systematic difference between mean.share and ",
   "mean.share.raw across every row is itself a measure of how much the support mismatch was distorting ",
-  "the un-matched (raw Phi) version of this same check.\n"
+  "the un-matched (raw Phi) version of this same check.\n",
+  "\nCAUTION on mean.share specifically, it is a RATIO with Phi.matched in the denominator, and ",
+  "Phi.matched itself rises with tau.window (Table 6's own result), so a FALLING mean.share across tau ",
+  "quartiles does not by itself mean the absolute behavioral gap is falling too, the denominator can be ",
+  "growing faster than the numerator. mean.gap.level (Phi.gap.matched alone, un-divided, same floored ",
+  "rows) is reported for exactly this reason, read it alongside mean.share rather than treating the ",
+  "ratio's own direction as dispositive on its own.\n"
 )
 
 print(
@@ -313,7 +337,9 @@ print(
       "Behavioral share of realized instability, PRIMARY (Phi.matched - Phi.BH) / Phi.matched (support-matched, ",
       "floored at Phi.matched > ", PHI_FLOOR_FOR_BEHAVIORAL_SHARE, "), overall and by quartile of the ",
       "independently-built within-season turnover classifier tau.window (06b\\_within\\_season\\_reallocation\\_rolling.R), ",
-      "mean.share.raw is the SECONDARY (un-matched, raw Phi) ratio on the identical rows, for comparison"
+      "mean.gap.level is the un-divided level of the same PRIMARY numerator (Phi.gap.matched) on the ",
+      "identical rows, read alongside mean.share since the ratio's denominator (Phi.matched) also rises ",
+      "with tau, and mean.share.raw is the SECONDARY (un-matched, raw Phi) ratio on the identical rows, for comparison"
     ),
     label = "tab:ch3-behavioral-share-by-tau-quartile", digits = 4
   ),
