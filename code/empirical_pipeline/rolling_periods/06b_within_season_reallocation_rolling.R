@@ -110,12 +110,26 @@ cat("Saved", rolling_tau_path, "\n")
 # extra join is needed for the fixed effect (the baseline needed a left_join
 # to vessel_summary for prime.fishery, that lifetime object is not the right
 # one here, see design Section 3.2).
-
+#
+# !is.specialist.window added, this was missing before and let single-fishery
+# vessel-windows into the regression. A window specialist has
+# within.season.switching.window = 0 by construction (one fishery has no
+# second fishery for its weekly share to move against) and Phi = 0 by
+# construction (Section 4's own H_bar = H_LR identity for a one-fishery
+# portfolio), so every specialist row is a (0, 0) point sitting exactly on
+# the fitted line with zero residual. That inflates both the slope and the
+# fit statistics without contributing any actual behavioral variation, and
+# it is exactly the reason Table 4, Table 7, and Table 8 all exclude window
+# specialists already (see this section's own text on why a specialist
+# "cannot be sorted into high or low turnover on this measure"). Table 6-
+# rolling was the one regression in this section that had not been given
+# the same restriction.
 table6_data.rolling <- vessel_window_summary.rolling %>%
-  filter(is.finite(rev.cv)) %>%
+  filter(is.finite(rev.cv), !is.specialist.window) %>%
   inner_join(switching_by_vessel_window.rolling, by = c("Vessel.ADFG.Number", "window.start"))
 
-cat("Vessel x window observations entering Table 6-rolling:", nrow(table6_data.rolling),
+cat("Vessel x window observations entering Table 6-rolling (window specialists excluded):",
+    nrow(table6_data.rolling),
     " distinct vessels:", n_distinct(table6_data.rolling$Vessel.ADFG.Number), "\n")
 
 # Three-layer inference protocol (design Section 2.2), window.start in the

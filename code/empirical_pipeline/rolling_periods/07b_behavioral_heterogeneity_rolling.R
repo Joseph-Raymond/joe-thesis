@@ -149,6 +149,46 @@ print(etable(
 cat("Wrote table7_slope_by_turnover_type_rolling.tex. N:", nrow(table7_data.rolling),
     " distinct vessels:", n_distinct(table7_data.rolling$Vessel.ADFG.Number), "\n")
 
+# ----------------------------------------------------------------------
+# Robustness, curvature check, rolling twin of 07_'s own quadratic
+# robustness table. Same reasoning, low-turnover windows sit closer to
+# H_bar = 1 than high-turnover windows do, so a linear H_bar:tau.window
+# interaction can pick up curvature in the baseline log(CV)-on-H_bar
+# relationship rather than a genuine difference by type. I(H_bar^2) enters
+# as a plain control, not interacted with tau.window, in both the
+# prime.fishery.window-FE and vessel-FE specifications, so the check
+# applies to the payoff column (vessel FE) as well as the main one.
+m_interaction_quad_roll <- feols(
+  log(rev.cv) ~ H_bar + I(H_bar^2) + tau.window + H_bar:tau.window | prime.fishery.window + window.start,
+  data = table7_data.rolling, cluster = ~Vessel.ADFG.Number + window.start
+)
+m_interaction_vfe_quad_roll <- feols(
+  log(rev.cv) ~ H_bar + I(H_bar^2) + tau.window + H_bar:tau.window | Vessel.ADFG.Number + window.start,
+  data = table7_data.rolling, cluster = ~Vessel.ADFG.Number + window.start
+)
+
+cat("Table 7-rolling interaction with I(H_bar^2) control, prime.fishery.window FE, ",
+    "compare against the no-curvature value above: ",
+    round(coef(m_interaction_quad_roll)["H_bar:tau.window"], 4), "\n")
+cat("Table 7-rolling interaction with I(H_bar^2) control, VESSEL FE, ",
+    "compare against the no-curvature payoff-column value above: ",
+    round(coef(m_interaction_vfe_quad_roll)["H_bar:tau.window"], 4), "\n")
+
+etable(
+  m_interaction_roll, m_interaction_quad_roll, m_interaction_vfe_roll, m_interaction_vfe_quad_roll,
+  headers = c("Interaction (linear)", "Interaction (H_bar^2 control)",
+              "Interaction, vessel FE (linear)", "Interaction, vessel FE (H_bar^2 control)"),
+  dict = table7_dict.rolling,
+  tex = TRUE,
+  file = file.path(table_dir, "table7_quadratic_robustness_rolling.tex"),
+  replace = TRUE
+)
+
+print(etable(m_interaction_roll, m_interaction_quad_roll, m_interaction_vfe_roll, m_interaction_vfe_quad_roll,
+             dict = table7_dict.rolling))
+
+cat("Wrote table7_quadratic_robustness_rolling.tex\n")
+
 # ============================================================================
 # 3. figure8b_slope_by_type_path_rolling.png
 # ============================================================================
@@ -297,6 +337,47 @@ print(etable(
 
 cat("Wrote table8_split_sample_slope_by_type_rolling.tex. N:", nrow(table8_data.rolling),
     " distinct vessels:", n_distinct(table8_data.rolling$Vessel.ADFG.Number), "\n")
+
+# ----------------------------------------------------------------------
+# Robustness, curvature check, Table 8's twin of Table 7-rolling's own
+# I(H_bar^2)-control robustness above. Table 8 already severs the temporal
+# link between classifier and outcome (tau.pre comes from the window
+# BEFORE the one rev.cv and H_bar are measured in), but that does nothing
+# to address the separate H_bar-support concern, low- and high-tau.pre
+# windows can still occupy different parts of the H_bar range, so this
+# check is needed here independently of Table 8's own reason for existing.
+m_split_interaction_quad_roll <- feols(
+  log(rev.cv) ~ H_bar + I(H_bar^2) + tau.pre + H_bar:tau.pre | prime.fishery.window + window.start,
+  data = table8_data.rolling, cluster = ~Vessel.ADFG.Number + window.start
+)
+m_split_interaction_vfe_quad_roll <- feols(
+  log(rev.cv) ~ H_bar + I(H_bar^2) + tau.pre + H_bar:tau.pre | Vessel.ADFG.Number + window.start,
+  data = table8_data.rolling, cluster = ~Vessel.ADFG.Number + window.start
+)
+
+cat("Table 8-rolling interaction with I(H_bar^2) control, prime.fishery.window FE, ",
+    "compare against the no-curvature value above: ",
+    round(coef(m_split_interaction_quad_roll)["H_bar:tau.pre"], 4), "\n")
+cat("Table 8-rolling interaction with I(H_bar^2) control, VESSEL FE, ",
+    "compare against the no-curvature value above: ",
+    round(coef(m_split_interaction_vfe_quad_roll)["H_bar:tau.pre"], 4), "\n")
+
+etable(
+  m_split_interaction_roll, m_split_interaction_quad_roll,
+  m_split_interaction_vfe_roll, m_split_interaction_vfe_quad_roll,
+  headers = c("Interaction (linear)", "Interaction (H_bar^2 control)",
+              "Interaction, vessel FE (linear)", "Interaction, vessel FE (H_bar^2 control)"),
+  dict = table8_dict.rolling,
+  tex = TRUE,
+  file = file.path(table_dir, "table8_quadratic_robustness_rolling.tex"),
+  replace = TRUE
+)
+
+print(etable(m_split_interaction_roll, m_split_interaction_quad_roll,
+             m_split_interaction_vfe_roll, m_split_interaction_vfe_quad_roll,
+             dict = table8_dict.rolling))
+
+cat("Wrote table8_quadratic_robustness_rolling.tex\n")
 
 # ---- Robustness, strict lookback floor of ROLL_MIN_ACTIVE_YEARS (4) instead
 #      of ROLL_MIN_LOOKBACK_YEARS (3), design Section 5.3's explicit ask ----

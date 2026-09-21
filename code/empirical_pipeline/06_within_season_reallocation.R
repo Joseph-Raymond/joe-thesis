@@ -367,12 +367,27 @@ switching_by_vessel_period <- switching_by_vessel_year %>%
     .groups = "drop"
   )
 
+# !is.specialist.period added, this was missing before and let single-
+# fishery vessel-periods into the regression. A period specialist has
+# within.season.switching = 0 by construction (one fishery has no second
+# fishery for its weekly share to move against) and Phi = 0 by construction
+# (Section 4's own H_bar = H_LR identity for a one-fishery portfolio), so
+# every specialist row is a (0, 0) point sitting exactly on the fitted line
+# with zero residual, inflating the slope and fit statistics without
+# contributing any real behavioral variation. This is the lifetime twin of
+# the same fix in 06b_within_season_reallocation_rolling.R's Table 6-rolling,
+# see that script's own comment for the full reasoning. is.specialist.period
+# is built in 01_build_panel.R right where vessel_period_summary itself is
+# assembled, since vessel_mean_share's n.fisheries.fished (used by Table 7/8
+# below) is a whole-career count and cannot substitute for a period-level
+# flag here.
 table6_data <- vessel_period_summary %>%
-  filter(meets.min.years.period, is.finite(rev.cv)) %>%
+  filter(meets.min.years.period, is.finite(rev.cv), !is.specialist.period) %>%
   inner_join(switching_by_vessel_period, by = c("Vessel.ADFG.Number", "period")) %>%
   left_join(vessel_summary %>% select(Vessel.ADFG.Number, prime.fishery), by = "Vessel.ADFG.Number")
 
-cat("Vessel x period observations entering Table 6:", nrow(table6_data), "\n")
+cat("Vessel x period observations entering Table 6 (period specialists excluded):",
+    nrow(table6_data), "\n")
 
 # mean.active.weeks is added as a control alongside within.season.switching,
 # not left computed-and-unused. weekly.switching is mechanically larger for

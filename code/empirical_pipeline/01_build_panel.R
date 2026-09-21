@@ -1070,9 +1070,26 @@ vessel_period_summary <- vessel_period_share_panel %>%
     # ([!duplicated(Fishery)]), not sum(unique(mean.share.fishery)^2),
     # which collapses fisheries that tie on long-run mean share.
     H_LR           = sum(mean.share.fishery[!duplicated(Fishery)]^2),
+    # n_distinct(Fishery) here is safe to read as "fisheries ever fished in
+    # this period," not "fisheries ever fished across the vessel's whole
+    # career," because vessel_period_share_panel's complete() step (above)
+    # can only cross-join Fishery values already present within this same
+    # (Vessel.ADFG.Number, period) group, it never pulls in a fishery the
+    # vessel fished in a different period. This is the period-grain analogue
+    # of is.specialist.window in 01b_build_rolling_panel.R (n.fisheries.
+    # fished.window == 1), needed because vessel_mean_share's own
+    # n.fisheries.fished (used by 07_behavioral_heterogeneity.R's Table 7/8)
+    # is a whole-career count, and a vessel can fish more than one fishery
+    # across its career while still fishing only one within any single
+    # period, so that whole-career flag cannot substitute for a period-level
+    # one here.
+    n.fisheries.period = n_distinct(Fishery),
     .groups = "drop"
   ) %>%
-  mutate(Phi = H_bar - H_LR) %>%
+  mutate(
+    Phi                  = H_bar - H_LR,
+    is.specialist.period = n.fisheries.period == 1
+  ) %>%
   left_join(
     active_vessel_years %>%
       mutate(period = period_of(Batch.Year)) %>%
@@ -1081,6 +1098,9 @@ vessel_period_summary <- vessel_period_share_panel %>%
     by = c("Vessel.ADFG.Number", "period")
   ) %>%
   mutate(meets.min.years.period = n.years.period >= MIN_ACTIVE_YEARS_PERIOD)
+
+cat("vessel_period_summary: single-fishery specialists (period):",
+    sum(vessel_period_summary$is.specialist.period), "of", nrow(vessel_period_summary), "\n")
 
 cat("vessel_period_summary rows:", nrow(vessel_period_summary),
     " meeting MIN_ACTIVE_YEARS_PERIOD =", MIN_ACTIVE_YEARS_PERIOD, ":",

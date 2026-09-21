@@ -136,6 +136,43 @@ print(etable(model_low_raw, model_high_raw, model_low_fe, model_high_fe, model_i
 cat("Wrote table7_slope_by_turnover_type.tex\n")
 
 # ----------------------------------------------------------------------
+# Robustness, curvature check. Low-turnover vessels sit almost entirely
+# near H_bar = 1 (see the commented-out diagnostic_hbar_by_turnover_type.png
+# block below) while high-turnover vessels spread across a much wider
+# range, so the two groups occupy different, barely-overlapping segments of
+# H_bar. If the true log(CV)-on-H_bar relationship is convex rather than
+# linear, a straight line fit separately to each segment (or a linear
+# interaction term fit across both) can pick up that curvature and report
+# it as a difference in slope BY TYPE, even with no real behavioral
+# difference between the two groups. I(H_bar^2) is added here as a plain
+# control, not interacted with switching, so the test is narrow and exactly
+# targeted, does the H_bar:within.season.switching interaction survive once
+# the baseline relationship is allowed to curve. It is not offered as a
+# claim that the true relationship IS quadratic, only as a check that the
+# linear interaction is not an artifact of fitting a straight line where a
+# curved one belongs.
+model_interaction_quad <- feols(log(rev.cv) ~ H_bar + I(H_bar^2) + within.season.switching +
+                                   H_bar:within.season.switching | prime.fishery,
+                                 data = table7_data, vcov = "hetero")
+
+cat("Interaction coefficient with I(H_bar^2) added as a control, ",
+    "compare against the no-curvature value above, ",
+    round(coef(model_interaction_quad)["H_bar:within.season.switching"], 4), "\n")
+
+etable(
+  model_interaction, model_interaction_quad,
+  headers = c("Interaction (linear)", "Interaction (H_bar^2 control)"),
+  dict = table7_dict,
+  tex = TRUE,
+  file = file.path(table_dir, "table7_quadratic_robustness.tex"),
+  replace = TRUE
+)
+
+print(etable(model_interaction, model_interaction_quad, dict = table7_dict))
+
+cat("Wrote table7_quadratic_robustness.tex\n")
+
+# ----------------------------------------------------------------------
 # Robustness. Re-classify type on the per-transition-normalized switching
 # measure instead of the raw sum, mirroring Table 7's full five-column
 # structure (raw split, prime.fishery-FE split, continuous interaction)

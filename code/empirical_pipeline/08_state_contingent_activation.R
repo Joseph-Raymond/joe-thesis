@@ -438,5 +438,12 @@ if (nrow(activation_data_event) > 0) {
 # machinery a second time.
 
 activation_path <- file.path(intermediate_dir, "ch3_activation.rdata")
-save(activation_data, file = activation_path)
+# vessel_year_shock added alongside activation_data (purely additive, does
+# not touch activation_data's own construction) so 06c_tau_shock_validation.R
+# can reuse this section's own leave-one-out shock without re-deriving the
+# predetermined-primary/second-half machinery a third time. One row per
+# (Vessel.ADFG.Number, Batch.Year), broader than activation_data (which is
+# restricted to held-non-primary candidate rows), so it directly supports a
+# vessel-year-level outcome like switching rather than an activation outcome.
+save(activation_data, vessel_year_shock, file = activation_path)
 cat("Saved activation panel to", activation_path, "\n")

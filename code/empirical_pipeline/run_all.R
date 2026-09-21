@@ -29,6 +29,12 @@
 # reason as the rest of the 04_ group, see its own header for the match-
 # rate confound it checks before reading anything into a residency gap.
 #
+# 06c_tau_shock_validation.R is numbered with the 06_ family (it validates
+# 06_'s own switching measure) but its real dependency is 08_'s
+# vessel_year_shock, so despite the name it must run AFTER 08_, not
+# alongside 06_. Same numbering-versus-dependency mismatch as
+# 11_switch_event_weights.R, see that script's own header.
+#
 # THIS CANNOT BE RUN LOCALLY, same as every other script in this folder, see
 # 00_setup.R.
 
@@ -45,6 +51,7 @@ source("code/empirical_pipeline/05_table4_figure3_owner.R")
 source("code/empirical_pipeline/06_within_season_reallocation.R")
 source("code/empirical_pipeline/07_behavioral_heterogeneity.R")
 source("code/empirical_pipeline/08_state_contingent_activation.R")
+source("code/empirical_pipeline/06c_tau_shock_validation.R")
 source("code/empirical_pipeline/09_seasonal_overlap.R")
 source("code/empirical_pipeline/10_network_similarity.R")
 source("code/empirical_pipeline/11_switch_event_weights.R")
