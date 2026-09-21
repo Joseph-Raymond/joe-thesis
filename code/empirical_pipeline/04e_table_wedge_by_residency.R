@@ -74,15 +74,37 @@ print(residency_wedge %>%
 
 table3_by_residency <- residency_wedge %>%
   transmute(
-    Residency                                = residency,
-    `Owner-years`                            = format(n.owner.years, big.mark = ","),
-    `Unused count share, with unmatched`     = sprintf("%.4f", unused.count.share.with),
-    `Unused count share, without unmatched`  = sprintf("%.4f", unused.count.share.without),
-    `Unused value share, with unmatched`     = sprintf("%.4f", unused.value.share.with),
-    `Permits held per owner-year`            = sprintf("%.4f", n.held.fishery.mean)
+    Residency                    = residency,
+    `Owner-years`                = format(n.owner.years, big.mark = ","),
+    UnusedCountWith               = sprintf("%.4f", unused.count.share.with),
+    UnusedCountWithout            = sprintf("%.4f", unused.count.share.without),
+    UnusedValueWith               = sprintf("%.4f", unused.value.share.with),
+    PermitsHeld                   = sprintf("%.4f", n.held.fishery.mean)
   )
 
 print(table3_by_residency, n = Inf)
+
+# Column headers built as a plain character vector rather than as the
+# transmute()'s own backtick-quoted names, backtick identifiers do not
+# collapse a "\\\\" the way a normal double-quoted string literal does, so
+# getting a literal LaTeX line break into a backtick name is unreliable,
+# not something worth risking on a pipeline that cannot be run locally to
+# check (00_setup.R). \shortstack{} (core LaTeX, no package needed) wraps
+# the four wordy headers onto two lines each so xtable does not size those
+# columns off a single long header line while the short columns (Residency,
+# Owner-years) stay narrow, which is what was making the printed table run
+# over the page width. sanitize.colnames.function below is required for
+# this, xtable's default sanitizer escapes the backslashes in \shortstack
+# itself and would print the raw macro text instead of running it.
+residency_table_headers <- c(
+  "Residency",
+  "Owner-years",
+  "\\shortstack{Unused count share\\\\with unmatched}",
+  "\\shortstack{Unused count share\\\\without unmatched}",
+  "\\shortstack{Unused value share\\\\with unmatched}",
+  "\\shortstack{Permits held\\\\per owner-year}"
+)
+colnames(table3_by_residency) <- residency_table_headers
 
 print(xtable(table3_by_residency,
              caption = paste0("Held-versus-fished wedge by owner residency, owner-years with at least one ",
@@ -90,6 +112,7 @@ print(xtable(table3_by_residency,
                                MIN_OWNER_YEARS_FOR_RESIDENCY_TABLE, " owner-years"),
              label = "tab:ch3-table3-by-residency"),
       file = file.path(table_dir, "table3_wedge_by_residency.tex"),
-      include.rownames = FALSE)
+      include.rownames = FALSE,
+      sanitize.colnames.function = function(x) x)
 
 cat("Wrote table3_wedge_by_residency.tex to", table_dir, "\n")

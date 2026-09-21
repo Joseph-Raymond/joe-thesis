@@ -107,8 +107,11 @@ m_decomposed_weighted_roll <- feols(rev.cv ~ H_LR + Phi | prime.fishery.window +
 etable(
   m_baseline_roll, m_decomposed_roll, m_baseline_std_roll, m_decomposed_std_roll,
   m_decomposed_vfe_roll, m_decomposed_weighted_roll,
+  # Short headers on purpose, see the identical comment in the owner-grain
+  # twin (05b_table4_figure3_rolling_owner.R) for why, same fix applied
+  # here since this table has the exact same six-column header pattern.
   headers = c("Baseline", "Decomposed", "Baseline (z)", "Decomposed (z)",
-              "Decomposed (vessel FE)", "Decomposed (inv. window wt.)"),
+              "Vessel FE", "Weighted"),
   tex = TRUE,
   file = file.path(table_dir, "table4_decomposition_regression_rolling.tex"),
   replace = TRUE

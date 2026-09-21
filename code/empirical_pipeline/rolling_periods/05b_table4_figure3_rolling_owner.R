@@ -150,8 +150,15 @@ m_decomposed_weighted_roll_owner <- feols(rev.cv ~ H_LR + Phi | prime.fishery.wi
 etable(
   m_baseline_roll_owner, m_decomposed_roll_owner, m_baseline_std_roll_owner, m_decomposed_std_roll_owner,
   m_decomposed_ownerfe_roll_owner, m_decomposed_weighted_roll_owner,
+  # Short headers on purpose, the last two used to be "Decomposed (owner FE)"
+  # and "Decomposed (inv. window wt.)", noticeably longer than the other
+  # four, which made etable size those two columns wider than the rest and
+  # the printed table looked lopsided. The Model row ((1) through (6)), the
+  # File.Number fixed-effect row, and the caption's own column-by-column
+  # description already carry the full detail these headers used to spell
+  # out, so shortening them costs nothing a reader needs.
   headers = c("Baseline", "Decomposed", "Baseline (z)", "Decomposed (z)",
-              "Decomposed (owner FE)", "Decomposed (inv. window wt.)"),
+              "Owner FE", "Weighted"),
   tex = TRUE,
   file = file.path(table_dir, "table4_decomposition_regression_rolling_owner.tex"),
   replace = TRUE
