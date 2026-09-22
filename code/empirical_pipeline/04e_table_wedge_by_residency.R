@@ -106,12 +106,16 @@ residency_table_headers <- c(
 )
 colnames(table3_by_residency) <- residency_table_headers
 
-print(xtable(table3_by_residency,
-             caption = paste0("Held-versus-fished wedge by owner residency, owner-years with at least one ",
-                               "held permit, restricted to residency categories with at least ",
-                               MIN_OWNER_YEARS_FOR_RESIDENCY_TABLE, " owner-years"),
-             label = "tab:ch3-table3-by-residency"),
+# floating = FALSE, caption and label dropped from xtable() itself and
+# moved into chapter3_writeup.tex's own \begin{table} wrapper instead, the
+# same pattern every other wide table in the chapter uses. The shortstack
+# header wrapping above still helps, but on its own it was not enough to
+# keep this six-column table under \textwidth (Overfull \hbox), and a bare
+# tabular is what lets the writeup wrap it in \resizebox, which a table
+# float cannot be nested inside.
+print(xtable(table3_by_residency),
       file = file.path(table_dir, "table3_wedge_by_residency.tex"),
+      floating = FALSE,
       include.rownames = FALSE,
       sanitize.colnames.function = function(x) x)
 
