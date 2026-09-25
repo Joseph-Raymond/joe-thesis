@@ -105,6 +105,21 @@ if ("Permit.Status" %in% names(permit_register_raw)) {
   cat("\n===== Permit.Status distribution, permit register rows before any status filter =====\n")
   print(permit_register_raw %>% count(Permit.Status, sort = TRUE))
 
+  # Captured here, before the Current-Owner filter below overwrites
+  # permit_register_raw and drops every Former Owner row for good. Chat
+  # asked whether a sale could be observed directly by keeping BOTH the
+  # seller's Former Owner row and the buyer's Current Owner row for the
+  # same permit-year, rather than only the rare case
+  # (permit_year_owners/diagnostic_wedge_by_permit_transfer.R) where more
+  # than one File.Number happens to carry Current Owner status at once.
+  # This is that fuller signal, one row per (Batch.Year,
+  # CFEC.Permit.Serial.Number, File.Number, Permit.Status), covering every
+  # holder who ever appears on a permit that year, current or former, not
+  # only whoever survives the filter below.
+  permit_ownership_history <- permit_register_raw %>%
+    filter(!is.na(File.Number), !is.na(Permit.Status)) %>%
+    distinct(Batch.Year, CFEC.Permit.Serial.Number, File.Number, Permit.Status)
+
   # REVISED after the first real run. The printed distribution above turned
   # out to carry exactly two values, "Current Owner" and "Former Owner", no
   # "cancelled" string anywhere, so an earlier grepl("cancel", ...) version
@@ -1698,7 +1713,7 @@ save(
   owner_period_summary,
   period_bounds,
   match_diag, fleet_mean_revenue, fleet_mean_revenue_owner, owner_residency_lookup,
-  permit_year_owners, owner_permit_year,
+  permit_year_owners, owner_permit_year, permit_ownership_history,
   MAX_YEAR,
   file = panel_path
 )
