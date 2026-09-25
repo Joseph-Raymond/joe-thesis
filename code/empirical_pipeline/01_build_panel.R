@@ -196,6 +196,27 @@ if ("Permit.Sequence" %in% names(permit_register_raw)) {
           "CHECK the real column name against the server copy of permit_clean.rdata.")
 }
 
+# Per-permit-year transfer signal, companion to the resale diagnostic just
+# above but kept as its own saved object (rather than only a printed count)
+# so 04f_table_wedge_by_transfer.R can join it onto the held/fished side.
+# Chat raised a concern worth checking directly, a fisher who sells (or
+# buys) a permit mid-year might read as "held but unfished" for a reason
+# that has nothing to do with genuinely holding idle backup access. This
+# does not resolve WHICH party (seller, buyer, or both) a transfer gets
+# attributed to, that depends on how many distinct File.Numbers the
+# Permit.Status == "Current Owner" filter above leaves for a given permit-
+# year, which is exactly what n.distinct.owners counts.
+permit_year_owners <- permit_register_raw %>%
+  filter(!is.na(File.Number)) %>%
+  distinct(Batch.Year, CFEC.Permit.Serial.Number, File.Number) %>%
+  group_by(Batch.Year, CFEC.Permit.Serial.Number) %>%
+  summarise(n.distinct.owners = n_distinct(File.Number), .groups = "drop") %>%
+  mutate(multi.owner.year = n.distinct.owners > 1)
+
+cat("\n===== Permit-years with more than one distinct current owner (transfer signal for 04f_) =====\n")
+cat("Permit x year cells:", nrow(permit_year_owners), ", multi-owner:", sum(permit_year_owners$multi.owner.year),
+    "(", round(100 * mean(permit_year_owners$multi.owner.year), 3), "% )\n")
+
 # Junk gear code exclusion. REVISED same day. The first version of this
 # filter included "08" on the strength of Permit_Variance.R's precedent and
 # S08P's absence from SALMON_GEAR_DIGITS above (an incomplete convenience
@@ -1289,10 +1310,17 @@ fished_owner_permit_year <- fished_vessel_permit_year %>%
   group_by(File.Number, Batch.Year, Fishery, CFEC.Permit.Serial.Number) %>%
   summarise(revenue = sum(revenue, na.rm = TRUE), .groups = "drop")
 
-owner_year_permit_level <- held_owner_permit %>%
+# Permit-serial grain, kept as its own object (not just piped straight into
+# the group_by/summarise below) so 04f_table_wedge_by_transfer.R can join
+# permit_year_owners' transfer signal onto it permit by permit, the
+# fishery-pooled owner_year_permit_level below loses exactly the distinction
+# that diagnostic needs.
+owner_permit_year <- held_owner_permit %>%
   full_join(fished_owner_permit_year,
             by = c("File.Number", "Batch.Year", "Fishery", "CFEC.Permit.Serial.Number")) %>%
-  mutate(held = replace_na(held, FALSE), fished = !is.na(revenue) & revenue > 0) %>%
+  mutate(held = replace_na(held, FALSE), fished = !is.na(revenue) & revenue > 0)
+
+owner_year_permit_level <- owner_permit_year %>%
   group_by(File.Number, Batch.Year) %>%
   summarise(
     n.held.permit     = sum(held),
@@ -1670,6 +1698,7 @@ save(
   owner_period_summary,
   period_bounds,
   match_diag, fleet_mean_revenue, fleet_mean_revenue_owner, owner_residency_lookup,
+  permit_year_owners, owner_permit_year,
   MAX_YEAR,
   file = panel_path
 )
