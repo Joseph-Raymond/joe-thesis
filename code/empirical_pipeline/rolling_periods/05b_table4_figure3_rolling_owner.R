@@ -679,16 +679,16 @@ m_extmargin_joint_ownerfe_roll_owner <- feols(rev.cv ~ n.unfished.avg + n.fished
                                                  File.Number + window.start,
                                                data = owner_extmargin.rolling, cluster = ~File.Number + window.start)
 
-# Curvature-robustness check, adding I(Phi^2) as a plain control, the same
-# move Section 6's own Table 7 curvature check already makes on H_bar (see
-# chapter3_writeup.tex Appendix, "Curvature robustness for the turnover
-# interaction"). Motivation, n.held.avg's correlation with Phi is much
-# stronger in rank (Spearman 0.67) than in levels (Pearson 0.29), a sign
-# the two move together but not on a straight line, and Phi carries by far
-# the largest coefficient in Model 3 above, so any real curvature in the
-# Phi-risk relationship that a linear term cannot capture could be
+# Curvature-robustness check, adding Phi squared as a plain control, the
+# same move Section 6's own Table 7 curvature check already makes on
+# H_bar (see chapter3_writeup.tex Appendix, "Curvature robustness for the
+# turnover interaction"). Motivation, n.held.avg's correlation with Phi is
+# much stronger in rank (Spearman 0.67) than in levels (Pearson 0.29), a
+# sign the two move together but not on a straight line, and Phi carries
+# by far the largest coefficient in Model 3 above, so any real curvature
+# in the Phi-risk relationship that a linear term cannot capture could be
 # leaking into n.unfished.avg's coefficient instead. If n.unfished.avg
-# survives close to its Model 3 value once I(Phi^2) is added, that is
+# survives close to its Model 3 value once Phi squared is added, that is
 # real evidence it is not just absorbing Phi's own curvature. If it
 # shrinks toward zero here, Model 3's estimate was likely picking up
 # curvature Model 3 itself had no way to represent. Prime-FE only, not
@@ -696,7 +696,19 @@ m_extmargin_joint_ownerfe_roll_owner <- feols(rev.cv ~ n.unfished.avg + n.fished
 # already only marginally significant on its own, adding a second
 # nonlinear term to that thinner specification would not give a
 # readable answer.
-m_extmargin_joint_quad_roll_owner <- feols(rev.cv ~ n.unfished.avg + n.fished.avg + H_LR + Phi + I(Phi^2) |
+#
+# Precomputed as its own column (Phi_sq) rather than I(Phi^2) inline in
+# the formula. Checked directly against a synthetic dataset before using
+# this on the real data, fixest 0.14.2 names an inline I(Phi^2) term
+# "I(I(Phi^2))" internally (a real double-wrap in the fitted model object
+# itself, not just an etable display quirk), which prints as that same
+# garbled string in both the console table and the saved .tex file.
+# Precomputing avoids the quirk entirely and gives a coefficient any
+# later code can reference by its own plain name if needed.
+owner_extmargin.rolling <- owner_extmargin.rolling %>%
+  mutate(Phi_sq = Phi^2)
+
+m_extmargin_joint_quad_roll_owner <- feols(rev.cv ~ n.unfished.avg + n.fished.avg + H_LR + Phi + Phi_sq |
                                               prime.fishery.window + window.start,
                                             data = owner_extmargin.rolling, cluster = ~File.Number + window.start)
 
@@ -705,6 +717,7 @@ etable(
   m_extmargin_joint_roll_owner, m_extmargin_joint_std_roll_owner, m_extmargin_joint_ownerfe_roll_owner,
   m_extmargin_joint_quad_roll_owner,
   headers = c("Held count", "Fished count", "Joint", "Joint (z)", "Joint (owner FE)", "Joint (Phi\\textsuperscript{2})"),
+  dict = c(Phi_sq = "Phi\\textsuperscript{2}"),
   tex = TRUE,
   file = file.path(table_dir, "table4b_extensive_margin_rolling_owner.tex"),
   replace = TRUE
@@ -716,9 +729,9 @@ print(etable(
   m_extmargin_joint_quad_roll_owner
 ))
 
-cat("\n--- Table 4b-rolling (owner), curvature check, does n.unfished.avg survive I(Phi^2)? ---\n")
+cat("\n--- Table 4b-rolling (owner), curvature check, does n.unfished.avg survive Phi squared? ---\n")
 cat("n.unfished.avg, Model 3 (linear Phi) -", round(coef(m_extmargin_joint_roll_owner)["n.unfished.avg"], 4),
-    ", Model 6 (+ I(Phi^2)) -", round(coef(m_extmargin_joint_quad_roll_owner)["n.unfished.avg"], 4), "\n")
+    ", Model 6 (+ Phi squared) -", round(coef(m_extmargin_joint_quad_roll_owner)["n.unfished.avg"], 4), "\n")
 
 cat("Wrote table4b_extensive_margin_rolling_owner.tex. Table 4b-rolling (owner) N -",
     nrow(owner_extmargin.rolling), ", distinct owners -", n_distinct(owner_extmargin.rolling$File.Number), "\n")
@@ -757,12 +770,12 @@ pc_ext_fished_ofe <- roll_phase_check_owner(
   label = "Table 4b-rolling (owner) - extensive margin joint (owner FE)"
 )
 pc_ext_unfished_quad <- roll_phase_check_owner(
-  fml = rev.cv ~ n.unfished.avg + n.fished.avg + H_LR + Phi + I(Phi^2) | prime.fishery.window + window.start,
+  fml = rev.cv ~ n.unfished.avg + n.fished.avg + H_LR + Phi + Phi_sq | prime.fishery.window + window.start,
   data = owner_extmargin.rolling, coef_name = "n.unfished.avg",
   label = "Table 4b-rolling (owner) - extensive margin joint quad (prime FE)"
 )
 pc_ext_fished_quad <- roll_phase_check_owner(
-  fml = rev.cv ~ n.unfished.avg + n.fished.avg + H_LR + Phi + I(Phi^2) | prime.fishery.window + window.start,
+  fml = rev.cv ~ n.unfished.avg + n.fished.avg + H_LR + Phi + Phi_sq | prime.fishery.window + window.start,
   data = owner_extmargin.rolling, coef_name = "n.fished.avg",
   label = "Table 4b-rolling (owner) - extensive margin joint quad (prime FE)"
 )
