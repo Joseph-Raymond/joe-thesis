@@ -283,12 +283,31 @@ rev_cv_owner.rolling <- active_owner_years.rolling %>%
 # it would quietly break the fished-plus-unfished identity n.unfished.avg
 # relies on below.
 #
-# n.unfished.avg = n.held.avg - n.fished.avg, exact by construction (per
-# year, then averaged, averaging is linear so the order does not matter),
-# the fished-plus-unfished decomposition of n.held.fishery.sec4. Lets Table
-# 4b-rolling ask whether UNCONVERTED access predicts revenue risk on its
-# own, rather than inferring that from a regression where the held and
-# realized measures partially overlap.
+# n.unfished.avg, the average, over the same years, of a YEAR-LEVEL floored
+# unfished count, n.unfished.fishery.year = pmax(0, n.held.fishery.sec4 -
+# n.fished.fishery.year), rather than the simpler n.held.avg - n.fished.avg.
+# The two are usually close but not identical, flooring matters whenever
+# ticket-to-register linkage noise makes a single year's fished count come
+# in above its held count (roughly 4.5 percent of active owner-years, see
+# held_vs_fished_check below), a held permit that failed to link back to
+# this owner in the register, not a fishery actually fished with no permit.
+# Left unfloored, that one bad year can drag an otherwise-fine window's
+# average unfished access below zero, which is not a meaningful quantity
+# (an owner cannot hold fewer than zero unused permits) and, worse, is a
+# NON-classical error, the same linkage miss that lowers a year's held
+# count leaves that year's fished count untouched, so the noise pushes
+# n.unfished.avg and n.fished.avg in opposite directions rather than
+# adding independent static to each, exactly the kind of correlated
+# measurement error that can distort two regressors sitting side by side
+# in the same model. Flooring at the YEAR level, before window averaging,
+# stops a single bad year from being carried into the window average at
+# all, rather than only catching it after the fact once a whole window's
+# average has already gone negative. This means n.fished.avg +
+# n.unfished.avg is no longer guaranteed to equal n.held.avg exactly for a
+# window touched by at least one floored year (the flooring throws away
+# the negative gap rather than letting it cancel out), a deliberate
+# tradeoff, not an oversight, see n.years.floored below for how often that
+# happens.
 
 n_held_owner_year <- owner_year %>%
   select(File.Number, Batch.Year, n.held.fishery.sec4)
@@ -320,7 +339,8 @@ cat("Active owner-years where n.held.fishery.sec4 falls below the ticket-based f
     round(100 * mean(held_vs_fished_check$n.held.fishery.sec4 < held_vs_fished_check$n.fished.fishery.year), 2),
     "% )\n")
 
-extensive_margin_owner_year.rolling <- held_vs_fished_check
+extensive_margin_owner_year.rolling <- held_vs_fished_check %>%
+  mutate(n.unfished.fishery.year = pmax(0, n.held.fishery.sec4 - n.fished.fishery.year))
 
 extensive_margin_window.rolling <- extensive_margin_owner_year.rolling %>%
   inner_join(
@@ -329,15 +349,24 @@ extensive_margin_window.rolling <- extensive_margin_owner_year.rolling %>%
   ) %>%
   group_by(File.Number, window.start) %>%
   summarise(
-    n.held.avg   = mean(n.held.fishery.sec4),
-    n.fished.avg = mean(n.fished.fishery.year),
+    n.held.avg      = mean(n.held.fishery.sec4),
+    n.fished.avg    = mean(n.fished.fishery.year),
+    n.unfished.avg  = mean(n.unfished.fishery.year),
+    # How many of THIS window's own eligible active years had the floor
+    # actually bind (n.held.fishery.sec4 < n.fished.fishery.year that
+    # year), carried forward so 05b_table4_figure3_rolling_owner.R can
+    # report, at the window grain, how much of the regression sample was
+    # touched by this correction, not just the raw owner-year rate.
+    n.years.floored = sum(n.held.fishery.sec4 < n.fished.fishery.year),
     .groups = "drop"
-  ) %>%
-  mutate(n.unfished.avg = n.held.avg - n.fished.avg)
+  )
 
 cat("extensive_margin_window.rolling -", nrow(extensive_margin_window.rolling),
     "owner-window rows, mean n.held.avg -", round(mean(extensive_margin_window.rolling$n.held.avg), 4),
     ", mean n.unfished.avg -", round(mean(extensive_margin_window.rolling$n.unfished.avg), 4), "\n")
+cat("Owner-windows touched by at least one floored year -",
+    sum(extensive_margin_window.rolling$n.years.floored > 0), "of", nrow(extensive_margin_window.rolling),
+    "(", round(100 * mean(extensive_margin_window.rolling$n.years.floored > 0), 2), "% )\n")
 
 # ============================================================================
 # 7. prime.fishery.window (design Section 3.2)
@@ -434,7 +463,7 @@ owner_window_summary.rolling <- owner_window_eligibility.rolling %>%
     prime.fishery.window, prime.fishery.lifetime,
     n.fisheries.fished.window, is.specialist.window, is.specialist.lifetime,
     n.windows.owner, inv.window.count, residency,
-    n.held.avg, n.fished.avg, n.unfished.avg
+    n.held.avg, n.fished.avg, n.unfished.avg, n.years.floored
   )
 
 cat("owner_window_summary.rolling -", nrow(owner_window_summary.rolling), "rows, ",

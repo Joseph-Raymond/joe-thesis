@@ -609,6 +609,18 @@ cat("R-squared regressing n.held.avg on H_LR + Phi (+ FE) -", round(r2(m_collin_
     ", a value close to 1 would mean the joint model below cannot separate n.unfished.avg/n.fished.avg",
     "from H_LR/Phi cleanly\n")
 
+# n.years.floored, 01b_build_rolling_panel_owner.R Section 6b, how many of
+# a window's own eligible active years had the year-level unfished floor
+# actually bind (a ticket-to-register linkage miss making that year's
+# held count come in below its fished count). Reported here at the WINDOW
+# grain (how much of the actual regression sample was touched), on top of
+# 01b_'s own owner-YEAR-level rate, so both are visible together.
+cat("\n--- Table 4b-rolling (owner), year-level unfished floor, how much of THIS sample it touched ---\n")
+cat("Owner-windows with n.years.floored > 0 -",
+    sum(owner_extmargin.rolling$n.years.floored > 0), "of", nrow(owner_extmargin.rolling), "(",
+    round(100 * mean(owner_extmargin.rolling$n.years.floored > 0), 2), "% )\n")
+print(table(n.years.floored = owner_extmargin.rolling$n.years.floored))
+
 # ----------------------------------------------------------------------
 # 7b. Regressions
 # ----------------------------------------------------------------------
@@ -624,9 +636,14 @@ m_extmargin_held_roll_owner <- feols(rev.cv ~ n.held.avg | prime.fishery.window 
 m_extmargin_fishedcount_roll_owner <- feols(rev.cv ~ n.fisheries.fished.window | prime.fishery.window + window.start,
                                              data = owner_extmargin.rolling, cluster = ~File.Number + window.start)
 
-# Model 3, the joint/reparameterized model. n.held.avg = n.fished.avg +
-# n.unfished.avg exactly by construction (01b_'s Section 6b), so running
-# the two components separately rather than n.held.avg itself makes the
+# Model 3, the joint/reparameterized model. n.unfished.avg is a year-level
+# FLOORED version of held minus fished, averaged over the window (01b_'s
+# Section 6b), not simply n.held.avg - n.fished.avg, so the three no
+# longer sum exactly for a window touched by n.years.floored > 0 (see the
+# diagnostic above), a deliberate tradeoff to stop a single bad
+# ticket-to-register linkage year from dragging an otherwise-fine window's
+# average below a logically impossible negative value. Running the fished
+# and unfished components separately rather than n.held.avg itself makes the
 # "does unconverted access matter net of realized diversification"
 # question a direct coefficient (on n.unfished.avg) rather than something
 # inferred from a model where n.held.avg and H_LR/Phi partially overlap.
@@ -662,10 +679,32 @@ m_extmargin_joint_ownerfe_roll_owner <- feols(rev.cv ~ n.unfished.avg + n.fished
                                                  File.Number + window.start,
                                                data = owner_extmargin.rolling, cluster = ~File.Number + window.start)
 
+# Curvature-robustness check, adding I(Phi^2) as a plain control, the same
+# move Section 6's own Table 7 curvature check already makes on H_bar (see
+# chapter3_writeup.tex Appendix, "Curvature robustness for the turnover
+# interaction"). Motivation, n.held.avg's correlation with Phi is much
+# stronger in rank (Spearman 0.67) than in levels (Pearson 0.29), a sign
+# the two move together but not on a straight line, and Phi carries by far
+# the largest coefficient in Model 3 above, so any real curvature in the
+# Phi-risk relationship that a linear term cannot capture could be
+# leaking into n.unfished.avg's coefficient instead. If n.unfished.avg
+# survives close to its Model 3 value once I(Phi^2) is added, that is
+# real evidence it is not just absorbing Phi's own curvature. If it
+# shrinks toward zero here, Model 3's estimate was likely picking up
+# curvature Model 3 itself had no way to represent. Prime-FE only, not
+# also built for the owner-FE column, Model 5's owner-FE estimate is
+# already only marginally significant on its own, adding a second
+# nonlinear term to that thinner specification would not give a
+# readable answer.
+m_extmargin_joint_quad_roll_owner <- feols(rev.cv ~ n.unfished.avg + n.fished.avg + H_LR + Phi + I(Phi^2) |
+                                              prime.fishery.window + window.start,
+                                            data = owner_extmargin.rolling, cluster = ~File.Number + window.start)
+
 etable(
   m_extmargin_held_roll_owner, m_extmargin_fishedcount_roll_owner,
   m_extmargin_joint_roll_owner, m_extmargin_joint_std_roll_owner, m_extmargin_joint_ownerfe_roll_owner,
-  headers = c("Held count", "Fished count", "Joint", "Joint (z)", "Joint (owner FE)"),
+  m_extmargin_joint_quad_roll_owner,
+  headers = c("Held count", "Fished count", "Joint", "Joint (z)", "Joint (owner FE)", "Joint (Phi\\textsuperscript{2})"),
   tex = TRUE,
   file = file.path(table_dir, "table4b_extensive_margin_rolling_owner.tex"),
   replace = TRUE
@@ -673,8 +712,13 @@ etable(
 
 print(etable(
   m_extmargin_held_roll_owner, m_extmargin_fishedcount_roll_owner,
-  m_extmargin_joint_roll_owner, m_extmargin_joint_std_roll_owner, m_extmargin_joint_ownerfe_roll_owner
+  m_extmargin_joint_roll_owner, m_extmargin_joint_std_roll_owner, m_extmargin_joint_ownerfe_roll_owner,
+  m_extmargin_joint_quad_roll_owner
 ))
+
+cat("\n--- Table 4b-rolling (owner), curvature check, does n.unfished.avg survive I(Phi^2)? ---\n")
+cat("n.unfished.avg, Model 3 (linear Phi) -", round(coef(m_extmargin_joint_roll_owner)["n.unfished.avg"], 4),
+    ", Model 6 (+ I(Phi^2)) -", round(coef(m_extmargin_joint_quad_roll_owner)["n.unfished.avg"], 4), "\n")
 
 cat("Wrote table4b_extensive_margin_rolling_owner.tex. Table 4b-rolling (owner) N -",
     nrow(owner_extmargin.rolling), ", distinct owners -", n_distinct(owner_extmargin.rolling$File.Number), "\n")
@@ -712,11 +756,22 @@ pc_ext_fished_ofe <- roll_phase_check_owner(
   data = owner_extmargin.rolling, coef_name = "n.fished.avg",
   label = "Table 4b-rolling (owner) - extensive margin joint (owner FE)"
 )
+pc_ext_unfished_quad <- roll_phase_check_owner(
+  fml = rev.cv ~ n.unfished.avg + n.fished.avg + H_LR + Phi + I(Phi^2) | prime.fishery.window + window.start,
+  data = owner_extmargin.rolling, coef_name = "n.unfished.avg",
+  label = "Table 4b-rolling (owner) - extensive margin joint quad (prime FE)"
+)
+pc_ext_fished_quad <- roll_phase_check_owner(
+  fml = rev.cv ~ n.unfished.avg + n.fished.avg + H_LR + Phi + I(Phi^2) | prime.fishery.window + window.start,
+  data = owner_extmargin.rolling, coef_name = "n.fished.avg",
+  label = "Table 4b-rolling (owner) - extensive margin joint quad (prime FE)"
+)
 
 load(ROLL_PHASE_CHECK_PATH)
 new_rows_extmargin <- bind_rows(
   pc_ext_unfished_prime$summary, pc_ext_fished_prime$summary,
-  pc_ext_unfished_ofe$summary, pc_ext_fished_ofe$summary
+  pc_ext_unfished_ofe$summary, pc_ext_fished_ofe$summary,
+  pc_ext_unfished_quad$summary, pc_ext_fished_quad$summary
 )
 rolling_overlap_robustness <- rolling_overlap_robustness %>%
   filter(!(paste(model, coefficient) %in% paste(new_rows_extmargin$model, new_rows_extmargin$coefficient))) %>%
