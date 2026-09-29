@@ -260,6 +260,32 @@ permit_register_raw <- permit_register_raw %>%
   filter(!(fishery.gear.digits %in% JUNK_GEAR_CODES)) %>%
   select(-fishery.gear.digits)
 
+# Snapshot taken HERE, after the junk-gear filter above but before the
+# data-gap gear exclusion below, so it carries the junk-gear and (once
+# applied a few lines down) non-harvest-code and Current-Owner filters, but
+# NOT the gear 04/08/18 data-gap exclusion. Purpose, a held-fishery count
+# built off permit_register_raw itself (n.held.fishery, Section 7 below)
+# shares a universe with H_bar/H_LR/Phi/rev.cv/n.fisheries.fished.window,
+# none of which ever touch permit_register_raw, they are built from the
+# fished (ticket) side only, so none of them apply the data-gap exclusion
+# either. Using n.held.fishery as an ex-ante regressor alongside those
+# fished-side quantities on the RESTRICTED universe can make an owner's
+# held count come in below their fished count, which is not a coherent
+# ex-ante-vs-ex-post comparison. permit_register_sec4_raw exists so a
+# second, wider held count can be built (Section 7's
+# held_owner_fishery_sec4/owner_year_held_sec4) without touching
+# permit_register_raw or anything already built from it, purely additive.
+# The non-harvest filter is duplicated onto this snapshot below (it runs on
+# permit_register_raw itself only after the data-gap block this snapshot
+# is deliberately taken before), Current-Owner status is already filtered
+# in Section 1 above this point so it does not need to be reapplied here.
+permit_register_sec4_raw <- permit_register_raw %>%
+  filter(!(Fishery %in% NON_HARVEST_FISHERY_CODES))
+
+cat("permit_register_sec4_raw (junk/non-harvest/Current-Owner filtered, data-gap gears KEPT) -",
+    nrow(permit_register_sec4_raw), "rows, vs permit_register_raw at this point in the script -",
+    nrow(permit_register_raw), "\n")
+
 # Data-gap gear exclusion, separate from the junk-gear-code filter above and
 # for a different reason, see EXCLUDED_GEAR_DIGITS_DATA_GAP's definition in
 # 00_setup.R for the full evidence trail (CFEC Report 25-4N citation, the
@@ -1216,6 +1242,29 @@ held_owner_fishery <- permit_register_raw %>%
   group_by(File.Number, Batch.Year, Fishery) %>%
   summarise(held = TRUE, held.vessel.matched = any(has.vessel.id), .groups = "drop")
 
+# Section 4-onward held-fishery count, a SEPARATE count from n.held.fishery
+# below (Section 7's own owner_year, built off held_owner_fishery, the
+# RESTRICTED, data-gap-excluded universe). Built off
+# permit_register_sec4_raw (Section 1) instead, which keeps the gear
+# 04/08/18 data-gap permits that n.held.fishery itself drops. Exists so a
+# held-based regressor (rolling_periods/01b_build_rolling_panel_owner.R's
+# ex-ante permit-count construction) can share a fishery universe with
+# H_bar/H_LR/Phi/rev.cv/n.fisheries.fished.window, all of which are built
+# from the fished (ticket) side only and never apply the data-gap
+# exclusion in the first place. Kept here, not computed inside the rolling
+# script itself, so the two cannot silently drift onto different universes
+# later. distinct() rather than group_by/summarise, only the count is
+# needed here, not held.vessel.matched or any other per-row flag.
+held_owner_fishery_sec4 <- permit_register_sec4_raw %>%
+  filter(!is.na(File.Number)) %>%
+  distinct(File.Number, Batch.Year, Fishery)
+
+owner_year_held_sec4 <- held_owner_fishery_sec4 %>%
+  count(File.Number, Batch.Year, name = "n.held.fishery.sec4")
+
+cat("owner_year_held_sec4 -", nrow(owner_year_held_sec4), "owner-years, mean n.held.fishery.sec4 -",
+    round(mean(owner_year_held_sec4$n.held.fishery.sec4), 4), "\n")
+
 fished_owner_fishery_year <- fished_vessel_fishery_year %>%
   filter(!is.na(File.Number)) %>%
   group_by(File.Number, Batch.Year, Fishery) %>%
@@ -1391,7 +1440,25 @@ owner_year <- owner_fishery_year %>%
                                          forgone.value.active / (forgone.value.active + fished.value), NA_real_)
   ) %>%
   left_join(owner_year_permit_level, by = c("File.Number", "Batch.Year")) %>%
-  left_join(owner_residency_lookup, by = "File.Number")
+  left_join(owner_residency_lookup, by = "File.Number") %>%
+  # n.held.fishery.sec4, the wider (data-gap-inclusive) held-fishery count,
+  # see owner_year_held_sec4's own comment above for why this is a second,
+  # separate column rather than a replacement for n.held.fishery. NA means
+  # no row in owner_year_held_sec4 at all (no held fishery under EITHER
+  # universe that owner-year), not a missing value, 0 is the correct fill.
+  left_join(owner_year_held_sec4, by = c("File.Number", "Batch.Year")) %>%
+  mutate(n.held.fishery.sec4 = replace_na(n.held.fishery.sec4, 0))
+
+# Sanity check, n.held.fishery.sec4 (data-gap gears kept) should never fall
+# below n.held.fishery (data-gap gears excluded) for the same owner-year,
+# sec4 is built off a strict superset of the fisheries n.held.fishery
+# counts. A nonzero count below would mean permit_register_sec4_raw and
+# permit_register_raw disagree on something other than the three filters
+# this was designed around, worth stopping to look at before trusting
+# anything built off n.held.fishery.sec4 downstream.
+n_held_sec4_below <- sum(owner_year$n.held.fishery.sec4 < owner_year$n.held.fishery)
+cat("owner_year -", nrow(owner_year), "rows, owner-years where n.held.fishery.sec4 falls below n.held.fishery -",
+    n_held_sec4_below, if (n_held_sec4_below > 0) " *** should be 0, inspect before trusting n.held.fishery.sec4 ***" else "", "\n")
 
 cat("Owner-years with a non-missing residency:", sum(!is.na(owner_year$residency)),
     "of", nrow(owner_year), "(", round(100 * mean(!is.na(owner_year$residency)), 1), "% )\n")

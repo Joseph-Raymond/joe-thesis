@@ -542,3 +542,202 @@ if (any(rolling_overlap_robustness$flag.outside.phase.range)) {
       "phase min-max range, inspect before trusting them ***\n")
   print(rolling_overlap_robustness %>% filter(flag.outside.phase.range) %>% select(model, coefficient))
 }
+
+# ============================================================================
+# 7. Table 4b-rolling (owner). Ex-ante held-fishery count as an extensive-
+#    margin regressor, alongside and jointly with H_LR/Phi
+# ============================================================================
+#
+# n.held.avg/n.fished.avg/n.unfished.avg (01b_build_rolling_panel_owner.R
+# Section 6b) are new, purely additive columns on owner_window_summary.rolling,
+# nothing above this section reads them and nothing above is changed by
+# adding them.
+#
+# Sample, owner_analysis.rolling (the POOLED sample, specialists included),
+# not owner_multi.rolling. Single-fishery-window owners are exactly the
+# clearest case of unconverted access (up to 6 held fisheries, 1 fished,
+# Phi = 0, H_LR = 1), excluding them would drop the population this
+# question is most about. This is a deliberate departure from Table
+# 4-rolling's own main-text sample above, not an oversight.
+#
+# All models write to a NEW table file, table4b_extensive_margin_rolling_owner.tex,
+# the existing table4_decomposition_regression_rolling_owner.tex and its
+# companions above are untouched.
+
+owner_extmargin.rolling <- owner_analysis.rolling %>%
+  filter(!is.na(n.held.avg), !is.na(n.fished.avg), !is.na(n.unfished.avg))
+
+cat("Table 4b-rolling (owner), sample -", nrow(owner_extmargin.rolling), "of",
+    nrow(owner_analysis.rolling), "owner-windows in the pooled Table 4-rolling sample (",
+    round(100 * nrow(owner_extmargin.rolling) / nrow(owner_analysis.rolling), 2),
+    "% ), any row dropped here has a missing n.held.avg/n.fished.avg/n.unfished.avg,",
+    "should not happen given how those columns are built, inspect 01b_'s Section 6b if this is not 100%\n")
+
+# ----------------------------------------------------------------------
+# 7a. Diagnostics, read BEFORE trusting anything fit below, this is a
+#     once-only server run, not an interactive session.
+# ----------------------------------------------------------------------
+
+cat("\n--- Table 4b-rolling (owner), n.held.avg distribution ---\n")
+held_avg_quantiles <- quantile(owner_extmargin.rolling$n.held.avg,
+                                probs = c(0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99))
+cat("mean -", round(mean(owner_extmargin.rolling$n.held.avg), 4),
+    ", sd -", round(sd(owner_extmargin.rolling$n.held.avg), 4), "\n")
+print(round(held_avg_quantiles, 4))
+cat("share at exactly 0 -", round(mean(owner_extmargin.rolling$n.held.avg == 0), 4),
+    ", share at exactly 1 -", round(mean(owner_extmargin.rolling$n.held.avg == 1), 4), "\n")
+
+cat("\n--- Table 4b-rolling (owner), n.held.avg correlation against H_bar/H_LR/Phi ---\n")
+for (v in c("H_bar", "H_LR", "Phi")) {
+  pear <- cor(owner_extmargin.rolling$n.held.avg, owner_extmargin.rolling[[v]], method = "pearson")
+  spear <- cor(owner_extmargin.rolling$n.held.avg, owner_extmargin.rolling[[v]], method = "spearman")
+  cat("n.held.avg vs", v, "- Pearson -", round(pear, 4), ", Spearman -", round(spear, 4), "\n")
+}
+
+cat("\n--- Table 4b-rolling (owner), n.held.avg vs the existing ex-post fished-count variable ---\n")
+cat("n.held.avg vs n.fisheries.fished.window - Pearson -",
+    round(cor(owner_extmargin.rolling$n.held.avg, owner_extmargin.rolling$n.fisheries.fished.window,
+              method = "pearson"), 4),
+    ", Spearman -",
+    round(cor(owner_extmargin.rolling$n.held.avg, owner_extmargin.rolling$n.fisheries.fished.window,
+              method = "spearman"), 4), "\n")
+
+cat("\n--- Table 4b-rolling (owner), multicollinearity gut check ---\n")
+m_collin_check <- feols(n.held.avg ~ H_LR + Phi | prime.fishery.window + window.start,
+                         data = owner_extmargin.rolling)
+cat("R-squared regressing n.held.avg on H_LR + Phi (+ FE) -", round(r2(m_collin_check, "r2"), 4),
+    ", a value close to 1 would mean the joint model below cannot separate n.unfished.avg/n.fished.avg",
+    "from H_LR/Phi cleanly\n")
+
+# ----------------------------------------------------------------------
+# 7b. Regressions
+# ----------------------------------------------------------------------
+
+# Model 1, ex-ante held count alone.
+m_extmargin_held_roll_owner <- feols(rev.cv ~ n.held.avg | prime.fishery.window + window.start,
+                                      data = owner_extmargin.rolling, cluster = ~File.Number + window.start)
+
+# Model 2, ex-post fished-fishery COUNT alone (n.fisheries.fished.window,
+# already built by 01b_, a union count over the window, distinct from
+# n.fished.avg's per-year average below), the alternative diversification
+# metric some prior literature uses in place of HHI.
+m_extmargin_fishedcount_roll_owner <- feols(rev.cv ~ n.fisheries.fished.window | prime.fishery.window + window.start,
+                                             data = owner_extmargin.rolling, cluster = ~File.Number + window.start)
+
+# Model 3, the joint/reparameterized model. n.held.avg = n.fished.avg +
+# n.unfished.avg exactly by construction (01b_'s Section 6b), so running
+# the two components separately rather than n.held.avg itself makes the
+# "does unconverted access matter net of realized diversification"
+# question a direct coefficient (on n.unfished.avg) rather than something
+# inferred from a model where n.held.avg and H_LR/Phi partially overlap.
+# The prime.fishery.window fixed effect means this is a within-prime-
+# fishery, within-window comparison across owners, not a claim about the
+# effect of any one owner acquiring a permit, and a negative coefficient
+# alone is not evidence of option value on its own, Chapter 2's own
+# buy-and-hold model already predicts CV falls mechanically as the choice
+# set grows, so that is the null this coefficient needs to be read against,
+# not a finding by itself.
+m_extmargin_joint_roll_owner <- feols(rev.cv ~ n.unfished.avg + n.fished.avg + H_LR + Phi |
+                                         prime.fishery.window + window.start,
+                                       data = owner_extmargin.rolling, cluster = ~File.Number + window.start)
+
+owner_extmargin_std.rolling <- owner_extmargin.rolling %>%
+  mutate(across(c(rev.cv, n.unfished.avg, n.fished.avg, H_LR, Phi), ~ as.numeric(scale(.x)), .names = "z.{.col}"))
+
+m_extmargin_joint_std_roll_owner <- feols(
+  z.rev.cv ~ z.n.unfished.avg + z.n.fished.avg + z.H_LR + z.Phi | prime.fishery.window + window.start,
+  data = owner_extmargin_std.rolling, cluster = ~File.Number + window.start
+)
+
+# Owner fixed-effects version of the joint model, identified off
+# within-owner variation across windows rather than the cross-owner
+# comparison above. If n.held.avg is close to time-invariant within an
+# owner (permit holdings are persistent), this column will be imprecise
+# relative to the prime-FE version above, and the CONTRAST between the two
+# is itself informative, a prime-FE estimate that does not survive an
+# owner FE is a between-owner sorting correlation (who holds more
+# permits), not a within-owner relationship (what happens when the SAME
+# owner's held count changes).
+m_extmargin_joint_ownerfe_roll_owner <- feols(rev.cv ~ n.unfished.avg + n.fished.avg + H_LR + Phi |
+                                                 File.Number + window.start,
+                                               data = owner_extmargin.rolling, cluster = ~File.Number + window.start)
+
+etable(
+  m_extmargin_held_roll_owner, m_extmargin_fishedcount_roll_owner,
+  m_extmargin_joint_roll_owner, m_extmargin_joint_std_roll_owner, m_extmargin_joint_ownerfe_roll_owner,
+  headers = c("Held count", "Fished count", "Joint", "Joint (z)", "Joint (owner FE)"),
+  tex = TRUE,
+  file = file.path(table_dir, "table4b_extensive_margin_rolling_owner.tex"),
+  replace = TRUE
+)
+
+print(etable(
+  m_extmargin_held_roll_owner, m_extmargin_fishedcount_roll_owner,
+  m_extmargin_joint_roll_owner, m_extmargin_joint_std_roll_owner, m_extmargin_joint_ownerfe_roll_owner
+))
+
+cat("Wrote table4b_extensive_margin_rolling_owner.tex. Table 4b-rolling (owner) N -",
+    nrow(owner_extmargin.rolling), ", distinct owners -", n_distinct(owner_extmargin.rolling$File.Number), "\n")
+
+# ----------------------------------------------------------------------
+# 7c. Mandatory stride-6 phase check on the joint model's four coefficients,
+#     prime-FE and owner-FE versions, extending this pipeline's existing
+#     inference protocol to the new headline models rather than skipping it.
+#
+#     Model labels below are deliberately distinct strings from Section 6's
+#     own "Table 4-rolling (owner) - decomposed (...)" labels. The shared
+#     ledger this appends to (rolling_overlap_robustness,
+#     table_rolling_overlap_robustness.tex) dedups on paste(model,
+#     coefficient), reusing an existing label here would silently
+#     OVERWRITE those rows instead of adding new ones.
+# ----------------------------------------------------------------------
+
+pc_ext_unfished_prime <- roll_phase_check_owner(
+  fml = rev.cv ~ n.unfished.avg + n.fished.avg + H_LR + Phi | prime.fishery.window + window.start,
+  data = owner_extmargin.rolling, coef_name = "n.unfished.avg",
+  label = "Table 4b-rolling (owner) - extensive margin joint (prime FE)"
+)
+pc_ext_fished_prime <- roll_phase_check_owner(
+  fml = rev.cv ~ n.unfished.avg + n.fished.avg + H_LR + Phi | prime.fishery.window + window.start,
+  data = owner_extmargin.rolling, coef_name = "n.fished.avg",
+  label = "Table 4b-rolling (owner) - extensive margin joint (prime FE)"
+)
+pc_ext_unfished_ofe <- roll_phase_check_owner(
+  fml = rev.cv ~ n.unfished.avg + n.fished.avg + H_LR + Phi | File.Number + window.start,
+  data = owner_extmargin.rolling, coef_name = "n.unfished.avg",
+  label = "Table 4b-rolling (owner) - extensive margin joint (owner FE)"
+)
+pc_ext_fished_ofe <- roll_phase_check_owner(
+  fml = rev.cv ~ n.unfished.avg + n.fished.avg + H_LR + Phi | File.Number + window.start,
+  data = owner_extmargin.rolling, coef_name = "n.fished.avg",
+  label = "Table 4b-rolling (owner) - extensive margin joint (owner FE)"
+)
+
+load(ROLL_PHASE_CHECK_PATH)
+new_rows_extmargin <- bind_rows(
+  pc_ext_unfished_prime$summary, pc_ext_fished_prime$summary,
+  pc_ext_unfished_ofe$summary, pc_ext_fished_ofe$summary
+)
+rolling_overlap_robustness <- rolling_overlap_robustness %>%
+  filter(!(paste(model, coefficient) %in% paste(new_rows_extmargin$model, new_rows_extmargin$coefficient))) %>%
+  bind_rows(new_rows_extmargin)
+
+save(rolling_overlap_robustness, file = ROLL_PHASE_CHECK_PATH)
+
+print(
+  xtable(
+    rolling_overlap_robustness %>% select(-flag.outside.phase.range),
+    caption = "Rolling overlap-robustness check, full-panel two-way-clustered estimate versus the stride-6 non-overlapping phase estimates, one row per headline model coefficient",
+    label = "tab:ch3-rolling-overlap-robustness", digits = 4
+  ),
+  file = file.path(table_dir, "table_rolling_overlap_robustness.tex"),
+  include.rownames = FALSE
+)
+cat("Wrote table_rolling_overlap_robustness.tex (", nrow(rolling_overlap_robustness),
+    "headline model rows so far, including Table 4b-rolling owner extensive-margin rows)\n")
+
+if (any(rolling_overlap_robustness$flag.outside.phase.range)) {
+  cat("*** WARNING, the following headline models have a full-panel estimate outside their own",
+      "phase min-max range, inspect before trusting them ***\n")
+  print(rolling_overlap_robustness %>% filter(flag.outside.phase.range) %>% select(model, coefficient))
+}

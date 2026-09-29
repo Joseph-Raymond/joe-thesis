@@ -260,6 +260,86 @@ rev_cv_owner.rolling <- active_owner_years.rolling %>%
   summarise(rev.cv = sd(owner.year.rev) / mean(owner.year.rev), .groups = "drop")
 
 # ============================================================================
+# 6b. Ex-ante held-fishery count and its within-window fished/unfished split
+#     (extensive-margin regressors for Table 4b-rolling, owner)
+# ============================================================================
+#
+# n.held.avg, the average, over the window's own eligible active years, of
+# n.held.fishery.sec4 (owner_year, 01_build_panel.R Section 7), the WIDER
+# held-fishery count that keeps the gear 04/08/18 data-gap permits
+# n.held.fishery itself excludes. Built on the same universe H_bar/H_LR/
+# Phi/rev.cv/n.fisheries.fished.window already use (none of those touch
+# permit_register_raw at all), so a held-based regressor does not end up
+# below a fished-based one purely from a register-side exclusion the
+# fished side never applied in the first place. See 01_build_panel.R's own
+# comment above permit_register_sec4_raw for the full reasoning.
+#
+# n.fished.avg, the average, over the same years, of the DISTINCT count of
+# fisheries with a positive revenue share that owner-year (owner_share_panel,
+# ticket-based, not gated on the register's held/fished join at all). Built
+# fresh here rather than reusing owner_year's own n.fished.fishery column,
+# that column is held & fished on the RESTRICTED register (the same
+# universe n.held.fishery itself uses), not the wider sec4 universe, reusing
+# it would quietly break the fished-plus-unfished identity n.unfished.avg
+# relies on below.
+#
+# n.unfished.avg = n.held.avg - n.fished.avg, exact by construction (per
+# year, then averaged, averaging is linear so the order does not matter),
+# the fished-plus-unfished decomposition of n.held.fishery.sec4. Lets Table
+# 4b-rolling ask whether UNCONVERTED access predicts revenue risk on its
+# own, rather than inferring that from a regression where the held and
+# realized measures partially overlap.
+
+n_held_owner_year <- owner_year %>%
+  select(File.Number, Batch.Year, n.held.fishery.sec4)
+
+n_fished_owner_year <- owner_share_panel %>%
+  filter(share > 0) %>%
+  count(File.Number, Batch.Year, name = "n.fished.fishery.year")
+
+# Owner-year-level check, BEFORE any window averaging, of how often the
+# wider held count still comes in below the ticket-based fished count for
+# the same owner-year, among owner-years the rolling sample actually uses
+# (active_owner_years.rolling, positive revenue). A nonzero share here is
+# expected (permit-serial matching failures, a fished fishery whose permit
+# never linked to this File.Number in the register, and so on, see
+# 01_build_panel.R's own 91.97 percent match-rate figure), the point of
+# this check is to size how much of that remains AFTER fixing the
+# systematic data-gap-gear mismatch, not to drive it to exactly zero.
+held_vs_fished_check <- active_owner_years.rolling %>%
+  select(File.Number, Batch.Year) %>%
+  left_join(n_held_owner_year, by = c("File.Number", "Batch.Year")) %>%
+  left_join(n_fished_owner_year, by = c("File.Number", "Batch.Year")) %>%
+  mutate(
+    n.held.fishery.sec4   = replace_na(n.held.fishery.sec4, 0),
+    n.fished.fishery.year = replace_na(n.fished.fishery.year, 0)
+  )
+cat("Active owner-years where n.held.fishery.sec4 falls below the ticket-based fished-fishery count -",
+    sum(held_vs_fished_check$n.held.fishery.sec4 < held_vs_fished_check$n.fished.fishery.year),
+    "of", nrow(held_vs_fished_check), "(",
+    round(100 * mean(held_vs_fished_check$n.held.fishery.sec4 < held_vs_fished_check$n.fished.fishery.year), 2),
+    "% )\n")
+
+extensive_margin_owner_year.rolling <- held_vs_fished_check
+
+extensive_margin_window.rolling <- extensive_margin_owner_year.rolling %>%
+  inner_join(
+    owner_year_window_eligible.rolling %>% select(File.Number, Batch.Year, window.start),
+    by = c("File.Number", "Batch.Year"), relationship = "many-to-many"
+  ) %>%
+  group_by(File.Number, window.start) %>%
+  summarise(
+    n.held.avg   = mean(n.held.fishery.sec4),
+    n.fished.avg = mean(n.fished.fishery.year),
+    .groups = "drop"
+  ) %>%
+  mutate(n.unfished.avg = n.held.avg - n.fished.avg)
+
+cat("extensive_margin_window.rolling -", nrow(extensive_margin_window.rolling),
+    "owner-window rows, mean n.held.avg -", round(mean(extensive_margin_window.rolling$n.held.avg), 4),
+    ", mean n.unfished.avg -", round(mean(extensive_margin_window.rolling$n.unfished.avg), 4), "\n")
+
+# ============================================================================
 # 7. prime.fishery.window (design Section 3.2)
 # ============================================================================
 #
@@ -338,6 +418,9 @@ owner_window_summary.rolling <- owner_window_eligibility.rolling %>%
   ) %>%
   left_join(owner_lifetime_labels.rolling, by = "File.Number") %>%
   left_join(n_windows_per_owner.rolling, by = "File.Number") %>%
+  # n.held.avg/n.fished.avg/n.unfished.avg, Section 6b above, the ex-ante
+  # extensive-margin regressors for Table 4b-rolling (owner).
+  left_join(extensive_margin_window.rolling, by = c("File.Number", "window.start")) %>%
   # residency, File.Number level, same lookup 01_build_panel.R attaches to
   # owner_summary/owner_year, joined here so 05b_table4_figure3_rolling_
   # owner.R can use it as a regression control the same way 05_table4_
@@ -350,7 +433,8 @@ owner_window_summary.rolling <- owner_window_eligibility.rolling %>%
     H_bar, H_LR, Phi, rev.cv,
     prime.fishery.window, prime.fishery.lifetime,
     n.fisheries.fished.window, is.specialist.window, is.specialist.lifetime,
-    n.windows.owner, inv.window.count, residency
+    n.windows.owner, inv.window.count, residency,
+    n.held.avg, n.fished.avg, n.unfished.avg
   )
 
 cat("owner_window_summary.rolling -", nrow(owner_window_summary.rolling), "rows, ",
