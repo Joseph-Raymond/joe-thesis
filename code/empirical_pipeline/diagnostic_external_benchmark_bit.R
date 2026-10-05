@@ -34,7 +34,7 @@ source("code/empirical_pipeline/00_setup.R")
 
 if (!exists("owner_permit_year") || !exists("MAX_YEAR")) load(panel_path)
 
-BIT_PATH <- "../context_data/data info/BIT.csv"
+BIT_PATH <- file.path(intermediate_dir, "BIT.csv")
 if (!file.exists(BIT_PATH)) stop("BIT.csv not found at ", BIT_PATH, ", check the working directory.")
 
 bit <- read.csv(BIT_PATH, check.names = FALSE, na.strings = ".", stringsAsFactors = FALSE) %>%
