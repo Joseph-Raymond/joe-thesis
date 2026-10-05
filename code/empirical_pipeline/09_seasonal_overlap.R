@@ -214,7 +214,7 @@ figure11 <- idle_overlap %>%
   labs(
     # The Bhattacharyya-coefficient definition and its interpretation belong
     # in the caption, not this subtitle.
-    title = "Held-but-unfished wedge, by seasonal overlap",
+    title = "Held-but-unfished gap, by seasonal overlap",
     subtitle = "Overlap between the idle permit and the vessel's own season",
     x = "Seasonal overlap between the idle permit and the vessel's fished fisheries that year",
     y = "Held-but-unfished vessel-fishery-years"

@@ -112,7 +112,7 @@ table3_display <- table3 %>%
     sprintf("%.4f", Value)
   ))
 
-print(xtable(table3_display, caption = "Held-versus-fished wedge, with and without permits missing a vessel identifier",
+print(xtable(table3_display, caption = "Held-versus-fished gap, with and without permits missing a vessel identifier",
              label = "tab:ch3-table3"),
       file = file.path(table_dir, "table3_wedge_missing_vessel_id.tex"),
       include.rownames = FALSE)
