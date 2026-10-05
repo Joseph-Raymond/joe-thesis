@@ -38,6 +38,7 @@ BIT_PATH <- file.path(intermediate_dir, "BIT.csv")
 if (!file.exists(BIT_PATH)) stop("BIT.csv not found at ", BIT_PATH, ", check the working directory.")
 
 bit <- read.csv(BIT_PATH, check.names = FALSE, na.strings = ".", stringsAsFactors = FALSE) %>%
+  as_tibble() %>%
   transmute(
     Fishery      = gsub(" ", "", Fishery),
     Batch.Year   = as.integer(Year),
