@@ -25,6 +25,8 @@
 
 source("code/empirical_pipeline/00_setup.R")
 
+if (!exists("MAX_YEAR")) load(panel_path)
+
 RAW_DIR <- "/home/akfin/"
 DIAG_CODE <- "B06B"
 SALE_DISPOSITIONS <- c("60", "62", "63", "64")
