@@ -28,7 +28,7 @@ if (!exists("vessel_year")) load(panel_path)
 # that the fishery-class version cannot.
 if (!exists("vessel_year_limited")) load(panel_path)
 
-# Top panel uses every fishery, bottom panel only fisheries CFEC labels
+# Left panel uses every fishery, right panel only fisheries CFEC labels
 # Limited (vessel_year_limited, 01_build_panel.R Section 5). Same three
 # measures and same vessel-year averaging in both panels.
 fig1_all <- vessel_year %>%
@@ -61,7 +61,7 @@ fig1_data <- bind_rows(fig1_all, fig1_limited) %>%
 figure1 <- fig1_data %>%
   ggplot(aes(x = Batch.Year, y = mean_unused_share, color = measure)) +
   geom_line(linewidth = 0.8) +
-  facet_wrap(~ panel, ncol = 1) +
+  facet_wrap(~ panel, ncol = 2) +
   labs(
     # Count vs. value share, and fishery-class vs. permit-serial, are defined
     # in the caption, the legend already names the three series distinctly.
@@ -69,10 +69,11 @@ figure1 <- fig1_data %>%
     x = "Year", y = "Mean unused share", color = NULL
   ) +
   scale_color_brewer(palette = "Set1") +
-  theme_minimal()
+  theme_minimal() +
+  theme(legend.position = "bottom")
 
 ggsave(file.path(figure_dir, "figure1_unused_share_timeseries.png"),
-       figure1, width = 8, height = 8, dpi = 300)
+       figure1, width = 11, height = 5, dpi = 300)
 
 # ============================================================================
 # Figure 2. Distribution across vessels, by gear class and vessel length
