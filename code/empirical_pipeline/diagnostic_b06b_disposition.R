@@ -6,27 +6,30 @@
 # B06B landing lines, and checks whether the zero-value landings and the
 # 2016 and 2017 BIT drop line up with ADFG_I_DISPOSITION_CODE.
 #
-# Older raw files can use different column names. The script first prints
-# which key columns each file has, then falls back to Permit.Fishery where
-# CFEC.Permit.Fishery is missing. A file with no fishery column at all is
-# skipped and reported.
+# Raw headers are passed through make.names() before matching, the same
+# renaming base read.csv applies in the pipeline, so "Batch Year" matches
+# Batch.Year. read_csv keeps the raw text, which is why matching on raw
+# names failed.
 #
 # Disposition codes 60, 62, 63, and 64, or a blank disposition, are priced by
 # delivery condition. Any other disposition (bait, fishmeal, personal use)
 # is priced by disposition, per the AKFIN Comprehensive Fish Ticket guide.
 #
 # Parts
-#   0. Which key columns each raw file has.
+#   0. Raw header names for the 2018 file, and which key fields each file has.
+#   0b. Field coverage by year.
 #   A. Pounds and zero-value share by disposition code, all years pooled.
 #   B. Share of B06B pounds by disposition code, by year.
 #   C. Disposition of zero-value landings that have positive pounds.
-#   D. Sale-type pounds against BIT's total pounds, by year.
+#   D. Sale-type pounds against BIT total pounds, by year.
 
 source("code/empirical_pipeline/00_setup.R")
 
 RAW_DIR <- "/home/akfin/"
 DIAG_CODE <- "B06B"
 SALE_DISPOSITIONS <- c("60", "62", "63", "64")
+
+FISH_CANDIDATES <- c("CFEC.Permit.Fishery", "Permit.Fishery")
 
 KEY_COLS <- c("CFEC.Permit.Fishery", "Permit.Fishery", "Batch.Year",
               "CFEC.Permit.Serial.Number", "Disposition.Code",
@@ -45,41 +48,42 @@ raw_files <- list.files(RAW_DIR, pattern = "\\.csv$", full.names = TRUE)
 if (length(raw_files) == 0) stop("No CSV files found in ", RAW_DIR)
 cat("Raw files found:", length(raw_files), "\n")
 
-header_of <- function(f) {
+raw_header <- function(f) {
   names(read_csv(f, n_max = 0, col_types = cols(.default = col_character()),
                  show_col_types = FALSE, progress = FALSE))
 }
 
-cat("\n===== 0. Key columns present in each raw file =====\n")
+cat("\n===== 0. Raw header names, 2018 file (first 12) =====\n")
+f2018 <- raw_files[grepl("^2018", basename(raw_files))][1]
+print(head(raw_header(f2018), 12))
+
+cat("\n===== 0. Key fields present in each file, after make.names() =====\n")
 header_check <- tibble(file = basename(raw_files)) %>%
   mutate(
-    headers = lapply(raw_files, header_of),
-    n.cols  = lengths(headers)
+    cleaned = lapply(raw_files, function(f) make.names(raw_header(f), unique = TRUE)),
+    n.cols  = lengths(cleaned)
   )
 for (k in KEY_COLS) {
-  header_check[[k]] <- vapply(header_check$headers, function(h) k %in% h, logical(1))
+  header_check[[k]] <- vapply(header_check$cleaned, function(h) k %in% h, logical(1))
 }
-print(header_check %>% select(-headers), n = Inf, width = Inf)
+print(header_check %>% select(-cleaned), n = Inf, width = Inf)
 
 read_b06b <- function(f) {
-  hdr <- header_of(f)
-  fish_col <- if ("CFEC.Permit.Fishery" %in% hdr) {
-    "CFEC.Permit.Fishery"
-  } else if ("Permit.Fishery" %in% hdr) {
-    "Permit.Fishery"
-  } else {
-    NA_character_
-  }
-  if (is.na(fish_col)) {
+  raw   <- raw_header(f)
+  clean <- make.names(raw, unique = TRUE)
+  fish_clean <- FISH_CANDIDATES[FISH_CANDIDATES %in% clean][1]
+  if (is.na(fish_clean)) {
     cat("Skipped", basename(f), ": no fishery column\n")
     return(NULL)
   }
-  d <- read_csv(f, col_select = any_of(c(fish_col, KEEP_COLS)),
+  keep_raw <- raw[clean %in% c(fish_clean, KEEP_COLS)]
+  d <- read_csv(f, col_select = all_of(keep_raw),
                 col_types = cols(.default = col_character()),
-                show_col_types = FALSE, progress = FALSE) %>%
-    rename(fishery.raw = all_of(fish_col))
+                show_col_types = FALSE, progress = FALSE)
+  names(d) <- make.names(names(d), unique = TRUE)
   for (cc in setdiff(KEEP_COLS, names(d))) d[[cc]] <- NA_character_
   d %>%
+    rename(fishery.raw = all_of(fish_clean)) %>%
     filter(gsub(" ", "", fishery.raw) == DIAG_CODE) %>%
     mutate(source.file = basename(f))
 }
@@ -87,8 +91,8 @@ read_b06b <- function(f) {
 b06 <- bind_rows(lapply(raw_files, read_b06b)) %>%
   mutate(
     Batch.Year = as.integer(Batch.Year),
-    pounds     = as.numeric(gsub(",", "", `Pounds..Detail.`)),
-    value      = as.numeric(gsub(",", "", `CFEC.Value..Detail.`)),
+    pounds     = as.numeric(gsub(",", "", Pounds..Detail.)),
+    value      = as.numeric(gsub(",", "", CFEC.Value..Detail.)),
     has.disp   = !is.na(Disposition.Code) & trimws(Disposition.Code) != "",
     disp       = ifelse(has.disp, trimws(Disposition.Code), "(blank)"),
     sale.type  = disp %in% c(SALE_DISPOSITIONS, "(blank)"),
@@ -104,10 +108,10 @@ cat("\n===== 0b. Field coverage by year (share of B06B rows with each field) ===
 print(b06 %>%
         group_by(Batch.Year) %>%
         summarise(
-          rows              = n(),
-          disp.present      = round(mean(has.disp), 3),
-          pounds.present    = round(mean(!is.na(pounds)), 3),
-          value.present     = round(mean(!is.na(value)), 3),
+          rows           = n(),
+          disp.present   = round(mean(has.disp), 3),
+          pounds.present = round(mean(!is.na(pounds)), 3),
+          value.present  = round(mean(!is.na(value)), 3),
           .groups = "drop"
         ),
       n = Inf, width = Inf)
