@@ -230,6 +230,7 @@ halibut_total <- halibut_all %>%
   group_by(Batch.Year) %>%
   summarise(
     all.halibut.pounds = sum(pounds, na.rm = TRUE),
+    all.halibut.whole  = sum(whole.pounds, na.rm = TRUE),
     b06b.pounds        = sum(pounds[fishery.clean == DIAG_CODE], na.rm = TRUE),
     .groups = "drop"
   ) %>%
@@ -286,6 +287,10 @@ cat(sprintf("\nIPHC 2017 Alaska landed catch, commercial plus research, in lb is
             format(IPHC_ALASKA_2017_LANDED, big.mark = ",")))
 cat(sprintf("Our 2017 all-halibut pounds, raw, is %s\n", format(h2017, big.mark = ",")))
 cat(sprintf("Ratio of raw to IPHC 2017 is %.3f\n", h2017 / IPHC_ALASKA_2017_LANDED))
+hw2017 <- halibut_total %>% filter(Batch.Year == 2017) %>% pull(all.halibut.whole)
+cat(sprintf("Whole pounds, all halibut 2017, in lb is %s\n", format(hw2017, big.mark = ",")))
+cat(sprintf("Ratio of whole to IPHC 2017 divided by 0.75 (round, if IPHC net equals dressed) is %.3f\n",
+            hw2017 / (IPHC_ALASKA_2017_LANDED / 0.75)))
 
 h2016 <- halibut_total %>% filter(Batch.Year == 2016) %>% pull(all.halibut.pounds)
 cat(sprintf("\nIPHC 2016 Alaska IFQ and CDQ landings in dressed lb is %s\n",
