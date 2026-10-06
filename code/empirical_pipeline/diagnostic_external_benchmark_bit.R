@@ -95,15 +95,15 @@ summarise_bench <- function(d, bit_col, our_col, pct_col) {
 }
 
 cat("\n===== Held side (Total Permits Issued/Renewed vs our held permit serials), kept codes =====\n")
-print(summarise_bench(kept, "bit.issued", "our.held", "held.pct"))
+print(summarise_bench(kept, "bit.issued", "our.held", "held.pct"), width = Inf)
 
 cat("\n===== Fished side (Total Permits Fished vs our fished permit serials), kept codes =====\n")
 kept_fished <- cmp %>% filter(treatment == "kept", in.bit, in.ours, bit.fished > 0)
-print(summarise_bench(kept_fished, "bit.fished", "our.fished", "fished.pct"))
+print(summarise_bench(kept_fished, "bit.fished", "our.fished", "fished.pct"), width = Inf)
 
-cat("\n===== Year totals, kept codes only (aggregate check over time) =====\n")
-year_tot <- cmp %>%
-  filter(treatment == "kept") %>%
+cat("\n===== Year totals, kept codes, MATCHED fishery-years only (both sides present) =====\n")
+year_matched <- cmp %>%
+  filter(treatment == "kept", in.bit, in.ours) %>%
   group_by(Batch.Year) %>%
   summarise(
     bit.issued = sum(bit.issued, na.rm = TRUE),
@@ -114,7 +114,24 @@ year_tot <- cmp %>%
     fished.ratio = round(our.fished / bit.fished, 3),
     .groups = "drop"
   )
-print(year_tot, n = Inf)
+print(year_matched, n = Inf, width = Inf)
+
+cat("\n===== Kept fishery-years in our panel but NOT in BIT (ours-only), by year =====\n")
+year_ours_only <- cmp %>%
+  filter(treatment == "kept", in.ours, !in.bit) %>%
+  group_by(Batch.Year) %>%
+  summarise(n.fishery.years = n(), our.held = sum(our.held, na.rm = TRUE),
+            our.fished = sum(our.fished, na.rm = TRUE), .groups = "drop")
+print(year_ours_only, n = Inf, width = Inf)
+
+cat("\n===== Ours-only fishery-years, by fishery (top 40 by held permits) =====\n")
+print(cmp %>% filter(treatment == "kept", in.ours, !in.bit) %>%
+        group_by(Fishery) %>%
+        summarise(n.years = n(), first.year = min(Batch.Year), last.year = max(Batch.Year),
+                  our.held = sum(our.held, na.rm = TRUE), our.fished = sum(our.fished, na.rm = TRUE),
+                  .groups = "drop") %>%
+        arrange(desc(our.held)) %>% head(40),
+      n = 40, width = Inf)
 
 cat("\n===== Largest held-side discrepancies, kept codes (top 25 by absolute difference) =====\n")
 print(kept %>% arrange(desc(abs(held.diff))) %>%
@@ -125,6 +142,33 @@ cat("\n===== Largest fished-side discrepancies, kept codes (top 25 by absolute d
 print(kept_fished %>% arrange(desc(abs(fished.diff))) %>%
         select(Fishery, Batch.Year, bit.fished, our.fished, fished.diff, fished.pct) %>% head(25),
       n = 25)
+
+DIAG_FISHERIES <- c("B06B", "L12T")
+
+cat("\n===== Serial-level linkage for DIAG_FISHERIES (owner-serial rows per year) =====\n")
+cat("held.fished = held and fished, held.not.fished = held but no ticket revenue,\n",
+    "fished.not.held = ticket revenue under an owner/serial with no register holding that year\n")
+diag_linkage <- owner_permit_year %>%
+  filter(Fishery %in% DIAG_FISHERIES) %>%
+  group_by(Fishery, Batch.Year) %>%
+  summarise(
+    rows.held.fished     = sum(held & fished),
+    rows.held.not.fished = sum(held & !fished),
+    rows.fished.not.held = sum(fished & !held),
+    .groups = "drop"
+  ) %>%
+  left_join(cmp %>% select(Fishery, Batch.Year, bit.issued, bit.fished),
+            by = c("Fishery", "Batch.Year"))
+print(diag_linkage, n = Inf, width = Inf)
+
+cat("\n===== Fished-not-held rows, DIAG_FISHERIES, 2016-2017, largest revenue first =====\n")
+cat("Each row is a File.Number with ticket revenue under a serial the register does not list as held for them that year.\n")
+print(owner_permit_year %>%
+        filter(Fishery %in% DIAG_FISHERIES, Batch.Year %in% c(2016, 2017), fished, !held) %>%
+        arrange(desc(revenue)) %>%
+        select(Fishery, Batch.Year, File.Number, CFEC.Permit.Serial.Number, revenue) %>%
+        head(30),
+      n = 30, width = Inf)
 
 cat("\n===== Excluded codes, for reference only (what the exclusions remove) =====\n")
 print(cmp %>% filter(treatment != "kept", in.bit) %>%
