@@ -253,6 +253,40 @@ print(halibut_total %>%
         mutate(ours.over.bit = round(all.halibut.pounds / bit.all.halibut.pounds, 3)),
       n = Inf, width = Inf)
 
+cat("\n===== G. Landing value by year, ours against BIT Total Earnings =====\n")
+bit_earnings <- read.csv(bit_path, check.names = FALSE, na.strings = ".", stringsAsFactors = FALSE) %>%
+  as_tibble() %>%
+  transmute(
+    Fishery      = gsub(" ", "", Fishery),
+    Batch.Year   = as.integer(Year),
+    bit.earnings = as.numeric(gsub("[$,]", "", `Total Earnings`))
+  ) %>%
+  filter(Fishery == DIAG_CODE, Batch.Year >= MIN_YEAR, Batch.Year <= MAX_YEAR)
+
+value_vs_bit <- b06 %>%
+  group_by(Batch.Year) %>%
+  summarise(
+    our.value         = sum(value, na.rm = TRUE),
+    value.na.share    = round(mean(is.na(value)), 3),
+    pounds.with.value = sum(pounds[!is.na(value)], na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  left_join(bit_earnings %>% select(Batch.Year, bit.earnings), by = "Batch.Year") %>%
+  left_join(bit_b06 %>% select(Batch.Year, bit.pounds), by = "Batch.Year") %>%
+  mutate(
+    value.over.bit = round(our.value / bit.earnings, 3),
+    our.price      = round(our.value / pounds.with.value, 2),
+    bit.price      = round(bit.earnings / bit.pounds, 2)
+  )
+print(value_vs_bit, n = Inf, width = Inf)
+
+IPHC_ALASKA_2017_LANDED <- 19145000
+h2017 <- halibut_total %>% filter(Batch.Year == 2017) %>% pull(all.halibut.pounds)
+cat(sprintf("\nIPHC 2017 Alaska landed catch, commercial plus research, in lb is %s\n",
+            format(IPHC_ALASKA_2017_LANDED, big.mark = ",")))
+cat(sprintf("Our 2017 all-halibut pounds, raw, is %s\n", format(h2017, big.mark = ",")))
+cat(sprintf("Ratio of raw to IPHC 2017 is %.3f\n", h2017 / IPHC_ALASKA_2017_LANDED))
+
 h2016 <- halibut_total %>% filter(Batch.Year == 2016) %>% pull(all.halibut.pounds)
 cat(sprintf("\nIPHC 2016 Alaska IFQ and CDQ landings in dressed lb is %s\n",
             format(IPHC_ALASKA_2016_DRESSED, big.mark = ",")))
