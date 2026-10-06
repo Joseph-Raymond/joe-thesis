@@ -1830,6 +1830,7 @@ save(
   period_bounds,
   match_diag, fleet_mean_revenue, fleet_mean_revenue_owner, owner_residency_lookup,
   permit_year_owners, owner_permit_year, permit_ownership_history, vessel_year_limited,
+  fished_vessel_permit_year,
   MAX_YEAR,
   file = panel_path
 )

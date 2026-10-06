@@ -32,7 +32,9 @@
 
 source("code/empirical_pipeline/00_setup.R")
 
-if (!exists("owner_permit_year") || !exists("MAX_YEAR")) load(panel_path)
+if (!exists("owner_permit_year") || !exists("fished_vessel_permit_year") || !exists("MAX_YEAR")) {
+  load(panel_path)
+}
 
 BIT_PATH <- file.path(intermediate_dir, "BIT.csv")
 if (!file.exists(BIT_PATH)) stop("BIT.csv not found at ", BIT_PATH, ", check the working directory.")
@@ -49,13 +51,19 @@ bit <- read.csv(BIT_PATH, check.names = FALSE, na.strings = ".", stringsAsFactor
 
 cat("BIT fishery-years in panel range:", nrow(bit), "\n")
 
-ours <- owner_permit_year %>%
+# Held comes from the register, keyed on owner. Fished comes from ticket
+# permit serials regardless of which filing number the ticket carries, so a
+# filing-number mismatch or a missing filing number does not drop a landing.
+ours_held <- owner_permit_year %>%
   group_by(Fishery, Batch.Year) %>%
-  summarise(
-    our.held   = n_distinct(CFEC.Permit.Serial.Number[held]),
-    our.fished = n_distinct(CFEC.Permit.Serial.Number[fished]),
-    .groups = "drop"
-  )
+  summarise(our.held = n_distinct(CFEC.Permit.Serial.Number[held]), .groups = "drop")
+
+ours_fished <- fished_vessel_permit_year %>%
+  filter(revenue > 0) %>%
+  group_by(Fishery, Batch.Year) %>%
+  summarise(our.fished = n_distinct(CFEC.Permit.Serial.Number), .groups = "drop")
+
+ours <- full_join(ours_held, ours_fished, by = c("Fishery", "Batch.Year"))
 
 cmp <- full_join(bit, ours, by = c("Fishery", "Batch.Year")) %>%
   mutate(
