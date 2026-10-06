@@ -16,8 +16,8 @@
 # Context_papers/CFEC codes/elanding_codes.pdf. Sale-type codes are 60 (sold),
 # 61 (sold for bait), 62 (overage), 64 (tagged IFQ fish) and 87 (retained for
 # future sale, IFQ halibut and sablefish only). A blank disposition also counts
-# as sale-type, since pricing then follows the delivery condition. The other
-# codes are non-sale, including 92 (bait, not sold), 95 (personal use), 98
+# as sale-type unless its delivery price category is 92, 95, 98 or 99. The
+# other codes are non-sale, including 92 (bait, not sold), 95 (personal use), 98
 # (discard at sea), 99 (discard onshore) and 63 (confiscated).
 #
 # Parts
@@ -37,6 +37,7 @@ if (!exists("MAX_YEAR")) load(panel_path)
 RAW_DIR <- "/home/akfin/"
 DIAG_CODE <- "B06B"
 SALE_DISPOSITIONS <- c("60", "61", "62", "64", "87")
+NONSALE_DELIVERY <- c("92", "95", "98", "99")
 KEY_COLS <- c("CFEC.Permit.Fishery", "Permit.Fishery", "Batch.Year",
               "CFEC.Permit.Serial.Number", "Disposition.Code",
               "Pounds..Detail.", "CFEC.Value..Detail.")
@@ -46,6 +47,7 @@ KEEP_COLS <- c(
   "CFEC.Permit.Holder.Filing.Number", "Ticket.Type", "Species.Code",
   "Gear.Code", "Harvest.Code", "Disposition.Code", "Delivery.Code",
   "CFEC.Price.Category.Delivery", "Pounds..Detail.", "CFEC.Value..Detail.",
+  "Whole.Pounds..Detail.", "CFEC.Whole.Pounds..Detail.",
   "CFEC.Price.per.Pound", "Price", "Meal.Flag", "Ancillary.Primary",
   "CFEC.Landing.Status", "Statistical.Area"
 )
@@ -103,7 +105,11 @@ halibut_all <- bind_rows(lapply(raw_files, read_halibut)) %>%
     value      = as.numeric(gsub(",", "", CFEC.Value..Detail.)),
     has.disp   = !is.na(Disposition.Code) & trimws(Disposition.Code) != "",
     disp       = ifelse(has.disp, trimws(Disposition.Code), "(blank)"),
-    sale.type  = disp %in% c(SALE_DISPOSITIONS, "(blank)"),
+    whole.pounds      = as.numeric(gsub(",", "", Whole.Pounds..Detail.)),
+    cfec.whole.pounds = as.numeric(gsub(",", "", CFEC.Whole.Pounds..Detail.)),
+    sale.type  = ifelse(has.disp,
+                        disp %in% SALE_DISPOSITIONS,
+                        !(CFEC.Price.Category.Delivery %in% NONSALE_DELIVERY)),
     zero.value = is.na(value) | value == 0,
     zero.value.pos.pounds = zero.value & !is.na(pounds) & pounds > 0
   ) %>%
@@ -177,18 +183,22 @@ bit_b06 <- read.csv(bit_path, check.names = FALSE, na.strings = ".", stringsAsFa
   ) %>%
   filter(Fishery == DIAG_CODE, Batch.Year >= MIN_YEAR, Batch.Year <= MAX_YEAR)
 
-cat("\n===== D. Sale-type pounds against BIT total pounds, by year =====\n")
+cat("\n===== D. Pounds against BIT total pounds, by basis and year (all, sale-type, whole, CFEC whole) =====\n")
 sale_vs_bit <- b06 %>%
   group_by(Batch.Year) %>%
   summarise(
-    all.pounds  = sum(pounds, na.rm = TRUE),
-    sale.pounds = sum(pounds[sale.type], na.rm = TRUE),
+    all.pounds        = sum(pounds, na.rm = TRUE),
+    sale.pounds       = sum(pounds[sale.type], na.rm = TRUE),
+    pounds.whole      = sum(whole.pounds, na.rm = TRUE),
+    pounds.cfec.whole = sum(cfec.whole.pounds, na.rm = TRUE),
     .groups = "drop"
   ) %>%
   left_join(bit_b06, by = "Batch.Year") %>%
   mutate(
-    all.over.bit  = round(all.pounds / bit.pounds, 3),
-    sale.over.bit = round(sale.pounds / bit.pounds, 3)
+    all.over.bit        = round(all.pounds / bit.pounds, 3),
+    sale.over.bit       = round(sale.pounds / bit.pounds, 3),
+    whole.over.bit      = round(pounds.whole / bit.pounds, 3),
+    cfec.whole.over.bit = round(pounds.cfec.whole / bit.pounds, 3)
   )
 print(sale_vs_bit, n = Inf, width = Inf)
 
@@ -225,6 +235,23 @@ halibut_total <- halibut_all %>%
   ) %>%
   mutate(b06b.share = round(b06b.pounds / all.halibut.pounds, 3))
 print(halibut_total, n = Inf, width = Inf)
+
+bit_halibut_total <- read.csv(bit_path, check.names = FALSE, na.strings = ".", stringsAsFactors = FALSE) %>%
+  as_tibble() %>%
+  transmute(
+    Fishery    = gsub(" ", "", Fishery),
+    Batch.Year = as.integer(Year),
+    bit.pounds = as.numeric(gsub(",", "", `Total Pounds`))
+  ) %>%
+  filter(substr(Fishery, 1, 1) == "B", Batch.Year >= MIN_YEAR, Batch.Year <= MAX_YEAR) %>%
+  group_by(Batch.Year) %>%
+  summarise(bit.all.halibut.pounds = sum(bit.pounds, na.rm = TRUE), .groups = "drop")
+
+cat("\n===== F2. All-halibut pounds, ours against BIT summed over every B-coded fishery =====\n")
+print(halibut_total %>%
+        left_join(bit_halibut_total, by = "Batch.Year") %>%
+        mutate(ours.over.bit = round(all.halibut.pounds / bit.all.halibut.pounds, 3)),
+      n = Inf, width = Inf)
 
 h2016 <- halibut_total %>% filter(Batch.Year == 2016) %>% pull(all.halibut.pounds)
 cat(sprintf("\nIPHC 2016 Alaska IFQ and CDQ landings in dressed lb is %s\n",
