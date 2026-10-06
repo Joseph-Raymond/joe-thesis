@@ -26,7 +26,12 @@ if (!exists("vessel_year")) load(panel_path)
 # it reads unused.count.share.permit >= unused.count.share whenever stacking
 # is present, since the permit-serial version can see an idle second serial
 # that the fishery-class version cannot.
-fig1_data <- vessel_year %>%
+if (!exists("vessel_year_limited")) load(panel_path)
+
+# Top panel uses every fishery, bottom panel only fisheries CFEC labels
+# Limited (vessel_year_limited, 01_build_panel.R Section 5). Same three
+# measures and same vessel-year averaging in both panels.
+fig1_all <- vessel_year %>%
   filter(n.held.fishery > 0) %>%
   group_by(Batch.Year) %>%
   summarise(
@@ -35,11 +40,28 @@ fig1_data <- vessel_year %>%
     `Value share`                 = mean(unused.value.share, na.rm = TRUE),
     .groups = "drop"
   ) %>%
-  pivot_longer(-Batch.Year, names_to = "measure", values_to = "mean_unused_share")
+  mutate(panel = "All fisheries")
+
+fig1_limited <- vessel_year_limited %>%
+  filter(n.held.lim > 0) %>%
+  group_by(Batch.Year) %>%
+  summarise(
+    `Count share (fishery-class)` = mean(unused.count.share.lim, na.rm = TRUE),
+    `Count share (permit-serial)` = mean(unused.count.share.permit.lim, na.rm = TRUE),
+    `Value share`                 = mean(unused.value.share.lim, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(panel = "Limited-entry fisheries only")
+
+fig1_data <- bind_rows(fig1_all, fig1_limited) %>%
+  pivot_longer(c(`Count share (fishery-class)`, `Count share (permit-serial)`, `Value share`),
+               names_to = "measure", values_to = "mean_unused_share") %>%
+  mutate(panel = factor(panel, levels = c("All fisheries", "Limited-entry fisheries only")))
 
 figure1 <- fig1_data %>%
   ggplot(aes(x = Batch.Year, y = mean_unused_share, color = measure)) +
   geom_line(linewidth = 0.8) +
+  facet_wrap(~ panel, ncol = 1) +
   labs(
     # Count vs. value share, and fishery-class vs. permit-serial, are defined
     # in the caption, the legend already names the three series distinctly.
@@ -50,7 +72,7 @@ figure1 <- fig1_data %>%
   theme_minimal()
 
 ggsave(file.path(figure_dir, "figure1_unused_share_timeseries.png"),
-       figure1, width = 8, height = 5, dpi = 300)
+       figure1, width = 8, height = 8, dpi = 300)
 
 # ============================================================================
 # Figure 2. Distribution across vessels, by gear class and vessel length

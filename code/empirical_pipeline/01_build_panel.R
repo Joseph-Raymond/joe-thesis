@@ -965,6 +965,55 @@ vessel_year <- vessel_fishery_year %>%
   # unused.count.share.permit (serial-level) are the two versions to compare.
   left_join(vessel_year_permit_level, by = c("Vessel.ADFG.Number", "Batch.Year"))
 
+# Limited-entry restriction for Figure 1's second panel. cfec_limited_status.csv
+# (Fishery x Batch.Year, built from the two CFEC fishery-code dictionaries in
+# Context_papers/CFEC codes/) gives each code's CFEC entry status by year. Rows with source "historical-outside-range" (a
+# code only in the historical dictionary, year outside its listed active
+# range) are not used, so retired codes are not labelled limited by
+# assumption. Codes without a status are not labelled limited either.
+limited_status_path <- file.path(intermediate_dir, "cfec_limited_status.csv")
+if (!file.exists(limited_status_path)) {
+  stop("cfec_limited_status.csv not found at ", limited_status_path,
+       ". Copy it from code/empirical_pipeline/ into intermediate data/ first.")
+}
+limited_status <- read.csv(limited_status_path, stringsAsFactors = FALSE) %>%
+  filter(source != "historical-outside-range") %>%
+  transmute(Fishery, Batch.Year = as.integer(Batch.Year), limited = as.logical(limited))
+
+vessel_year_limited_fish <- vessel_fishery_year %>%
+  left_join(limited_status, by = c("Fishery", "Batch.Year")) %>%
+  mutate(limited = replace_na(limited, FALSE)) %>%
+  filter(limited) %>%
+  group_by(Vessel.ADFG.Number, Batch.Year) %>%
+  summarise(
+    n.held.lim       = sum(held),
+    n.unfished.lim   = sum(held & !fished),
+    fished.value.lim = sum(revenue[held & fished], na.rm = TRUE),
+    forgone.value.lim = sum(replace_na(fleet_mean_revenue[held & !fished], 0)),
+    .groups = "drop"
+  )
+
+vessel_year_limited_permit <- vessel_permit_year %>%
+  left_join(limited_status, by = c("Fishery", "Batch.Year")) %>%
+  mutate(limited = replace_na(limited, FALSE)) %>%
+  filter(limited) %>%
+  group_by(Vessel.ADFG.Number, Batch.Year) %>%
+  summarise(
+    n.held.permit.lim     = sum(held),
+    n.unfished.permit.lim = sum(held & !fished),
+    .groups = "drop"
+  )
+
+vessel_year_limited <- vessel_year_limited_fish %>%
+  full_join(vessel_year_limited_permit, by = c("Vessel.ADFG.Number", "Batch.Year")) %>%
+  mutate(
+    unused.count.share.lim = if_else(n.held.lim > 0, n.unfished.lim / n.held.lim, NA_real_),
+    unused.count.share.permit.lim = if_else(n.held.permit.lim > 0,
+                                             n.unfished.permit.lim / n.held.permit.lim, NA_real_),
+    unused.value.share.lim = if_else((forgone.value.lim + fished.value.lim) > 0,
+                                      forgone.value.lim / (forgone.value.lim + fished.value.lim), NA_real_)
+  )
+
 cat("vessel_year rows:", nrow(vessel_year), "\n")
 cat("Mean unused.count.share (fishery-class):", round(mean(vessel_year$unused.count.share, na.rm = TRUE), 4),
     " vs (permit-serial):", round(mean(vessel_year$unused.count.share.permit, na.rm = TRUE), 4), "\n")
@@ -1780,7 +1829,7 @@ save(
   owner_period_summary,
   period_bounds,
   match_diag, fleet_mean_revenue, fleet_mean_revenue_owner, owner_residency_lookup,
-  permit_year_owners, owner_permit_year, permit_ownership_history,
+  permit_year_owners, owner_permit_year, permit_ownership_history, vessel_year_limited,
   MAX_YEAR,
   file = panel_path
 )
