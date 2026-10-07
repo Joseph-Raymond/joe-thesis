@@ -130,14 +130,15 @@ cat("The value rule is revenue above zero, the pipeline rule.\n",
 print(held_panel %>% count(fished.value, fished.pounds), n = Inf, width = Inf)
 
 cat("\n===== D2. Unused share under each rule, by status and year =====\n")
+# Count names differ from the flag names, so mean() reads the flags, not counts.
 rule_by_year <- held_panel %>%
   group_by(Batch.Year, status) %>%
   summarise(
-    held          = n(),
-    fished.value  = sum(fished.value),
-    fished.pounds = sum(fished.pounds),
-    unused.value  = round(mean(!fished.value), 3),
-    unused.pounds = round(mean(!fished.pounds), 3),
+    held            = n(),
+    n.fished.value  = sum(fished.value),
+    n.fished.pounds = sum(fished.pounds),
+    unused.value    = round(mean(!fished.value), 3),
+    unused.pounds   = round(mean(!fished.pounds), 3),
     .groups = "drop"
   )
 print(rule_by_year, n = Inf, width = Inf)
