@@ -40,6 +40,7 @@ held_panel <- owner_permit_year %>%
 # value flag assign each serial to the same owner. Zero-value landings count
 # here, so this flag includes landings the value rule treats as unfished. Those
 # rows are mostly discards, bait, and personal use (disposition codes 92 to 99).
+load("intermediate data/catch_data_temp.rdata")
 pounds_vessel_serial <- catch_data_temp %>%
   filter(!is.na(CFEC.Permit.Serial.Number)) %>%
   mutate(
