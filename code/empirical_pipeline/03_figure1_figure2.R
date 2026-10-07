@@ -212,16 +212,30 @@ if (file.exists(vessel_register_path)) {
   fig_length_data <- vessel_char %>%
     filter(Vessel.ADFG.Number %in% active_vessels, !is.na(vessel.length))
 
+  # 5ft bins up to 100ft, then one open-ended "100+" bin, so the rare large
+  # tender/mothership vessel does not stretch a continuous-binwidth x-axis
+  # out past where the rest of the fleet sits.
+  length_breaks <- c(seq(0, 100, by = 5), Inf)
+  length_labels <- c(paste(seq(0, 95, by = 5), seq(5, 100, by = 5), sep = "-"), "100+")
+  n_over_100 <- sum(fig_length_data$vessel.length >= 100)
+  cat("Active vessels at or above 100ft, collapsed into the \"100+\" bin:", n_over_100, "\n")
+
+  fig_length_data <- fig_length_data %>%
+    mutate(length.bin5 = cut(vessel.length, breaks = length_breaks,
+                              labels = length_labels, right = FALSE))
+
   figure_vessel_length <- fig_length_data %>%
-    ggplot(aes(x = vessel.length)) +
-    geom_histogram(binwidth = 5, boundary = 0, fill = "steelblue", color = "white") +
+    count(length.bin5) %>%
+    ggplot(aes(x = length.bin5, y = n)) +
+    geom_col(fill = "steelblue") +
     labs(
       title = "Distribution of active vessel length",
       subtitle = paste0("Vessels active at least ", MIN_ACTIVE_YEARS, " years (n = ",
                          nrow(fig_length_data), ")"),
       x = "Vessel length (feet)", y = "Number of vessels"
     ) +
-    theme_minimal()
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
   ggsave(file.path(figure_dir, "figure_active_vessel_length_histogram.png"),
          figure_vessel_length, width = 7, height = 5, dpi = 300)
