@@ -1014,6 +1014,22 @@ vessel_year_limited <- vessel_year_limited_fish %>%
                                       forgone.value.lim / (forgone.value.lim + fished.value.lim), NA_real_)
   )
 
+# Open-entry complement (Figure 2's open-vs-limited split). Only the
+# fishery-class count share is kept, Figure 2 is the only consumer and it
+# never uses the value or permit-serial measures the limited block above
+# keeps for Figure 1.
+vessel_year_open <- vessel_fishery_year %>%
+  left_join(limited_status, by = c("Fishery", "Batch.Year")) %>%
+  mutate(limited = replace_na(limited, FALSE)) %>%
+  filter(!limited) %>%
+  group_by(Vessel.ADFG.Number, Batch.Year) %>%
+  summarise(
+    n.held.open     = sum(held),
+    n.unfished.open = sum(held & !fished),
+    .groups = "drop"
+  ) %>%
+  mutate(unused.count.share.open = if_else(n.held.open > 0, n.unfished.open / n.held.open, NA_real_))
+
 cat("vessel_year rows:", nrow(vessel_year), "\n")
 cat("Mean unused.count.share (fishery-class):", round(mean(vessel_year$unused.count.share, na.rm = TRUE), 4),
     " vs (permit-serial):", round(mean(vessel_year$unused.count.share.permit, na.rm = TRUE), 4), "\n")
@@ -1829,7 +1845,7 @@ save(
   owner_period_summary,
   period_bounds,
   match_diag, fleet_mean_revenue, fleet_mean_revenue_owner, owner_residency_lookup,
-  permit_year_owners, owner_permit_year, permit_ownership_history, vessel_year_limited,
+  permit_year_owners, owner_permit_year, permit_ownership_history, vessel_year_limited, vessel_year_open,
   fished_vessel_permit_year,
   MAX_YEAR,
   file = panel_path

@@ -76,8 +76,12 @@ ggsave(file.path(figure_dir, "figure1_unused_share_timeseries.png"),
        figure1, width = 11, height = 5, dpi = 300)
 
 # ============================================================================
-# Figure 2. Distribution across vessels, by gear class and vessel length
+# Figure 2. Distribution across vessels, by gear class and vessel length,
+# split into open-entry and limited-entry fisheries (two separate figures,
+# replacing the earlier single all-fisheries version, by request).
 # ============================================================================
+
+if (!exists("vessel_year_open")) load(panel_path)
 
 vessel_register_path <- "~/JoeData/clean_data/vessels_clean_1978_2022.csv"
 
@@ -135,52 +139,94 @@ if (file.exists(vessel_register_path)) {
       .groups = "drop"
     ) %>%
     mutate(
-      # 40-50 and 50-60 merged into one 40-60 bin, both were the two
-      # smallest of the original six (a 10ft-bin histogram of vessel_char's
-      # own vessel.length gave 2644 and 1362 respectively, versus 19327 for
-      # 0-20 and 20465 for 20-30), so combining them trims a group without
-      # flattening resolution in the two bins where most of the fleet sits.
+      # 0-20 and 20-30 merged into one 0-30 bin, and 40-50/50-60 already
+      # merged into 40-60 below that, by request, three length bins rather
+      # than five.
       length.bin = cut(
         vessel.length,
-        breaks = c(0, 20, 30, 40, 60, Inf),
-        labels = c("0-20", "20-30", "30-40", "40-60", "60+"),
+        breaks = c(0, 30, 40, 60, Inf),
+        labels = c("0-30", "30-40", "40-60", "60+"),
         right = FALSE
       )
     )
 
-  fig2_data <- vessel_year %>%
-    filter(n.held.fishery > 0) %>%
-    group_by(Vessel.ADFG.Number) %>%
-    summarise(mean.unused.count.share = mean(unused.count.share, na.rm = TRUE), .groups = "drop") %>%
-    inner_join(vessel_char, by = "Vessel.ADFG.Number") %>%
-    filter(!is.na(length.bin))
+  # One call per entry-status split (open, limited), same gear x length-bin
+  # box plot either way, only the input vessel-year object, the column it
+  # averages, and the output file differ.
+  build_figure2 <- function(vessel_year_obj, n_held_col, measure_col, subtitle, file_name) {
+    df <- vessel_year_obj %>%
+      filter(.data[[n_held_col]] > 0) %>%
+      group_by(Vessel.ADFG.Number) %>%
+      summarise(mean.unused.count.share = mean(.data[[measure_col]], na.rm = TRUE), .groups = "drop") %>%
+      inner_join(vessel_char, by = "Vessel.ADFG.Number") %>%
+      filter(!is.na(length.bin))
 
-  n_fish_wheel <- sum(fig2_data$gear_class == "Fish Wheel")
-  # Fish wheel is a non-motorized subsistence/personal-use gear, out of place
-  # next to genuine commercial gear classes in a fleet diversification
-  # figure, dropped from Figure 2 by request rather than folded into
-  # "Unclassified" or left as its own (likely tiny) box. classify_gear()
-  # itself is untouched, so this only affects what gets plotted here.
-  fig2_data <- fig2_data %>% filter(gear_class != "Fish Wheel")
-  cat("Vessels excluded from Figure 2 for Fish Wheel gear class:", n_fish_wheel, "\n")
+    # Fish wheel is a non-motorized subsistence/personal-use gear, out of
+    # place next to genuine commercial gear classes in a fleet
+    # diversification figure, dropped from Figure 2 by request rather than
+    # folded into "Unclassified" or left as its own (likely tiny) box.
+    # classify_gear() itself is untouched, so this only affects what gets
+    # plotted here.
+    n_fish_wheel <- sum(df$gear_class == "Fish Wheel")
+    df <- df %>%
+      filter(gear_class != "Fish Wheel") %>%
+      mutate(gear_class = factor(gear_class, levels = GEAR_CLASS_ORDER))
+    cat("Vessels excluded from", file_name, "for Fish Wheel gear class:", n_fish_wheel, "\n")
 
-  fig2_data <- fig2_data %>% mutate(gear_class = factor(gear_class, levels = GEAR_CLASS_ORDER))
+    fig <- df %>%
+      ggplot(aes(x = gear_class, y = mean.unused.count.share, fill = length.bin)) +
+      geom_boxplot(outlier.size = 0.5, linewidth = 0.3) +
+      labs(
+        title = "Distribution of the unused permit share across vessels",
+        subtitle = subtitle,
+        x = "Gear class", y = "Mean unused count share (per vessel)", fill = "Length (ft)"
+      ) +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-  figure2 <- fig2_data %>%
-    ggplot(aes(x = gear_class, y = mean.unused.count.share, fill = length.bin)) +
-    geom_boxplot(outlier.size = 0.5, linewidth = 0.3) +
+    ggsave(file.path(figure_dir, file_name), fig, width = 9, height = 5.5, dpi = 300)
+    cat("Wrote", file_name, "\n")
+  }
+
+  build_figure2(vessel_year_open, "n.held.open", "unused.count.share.open",
+                "Open-entry fisheries only, by modal gear class and median vessel length (feet)",
+                "figure2_unused_share_distribution_open.png")
+
+  build_figure2(vessel_year_limited, "n.held.lim", "unused.count.share.lim",
+                "Limited-entry fisheries only, by modal gear class and median vessel length (feet)",
+                "figure2_unused_share_distribution_limited.png")
+
+  # ==========================================================================
+  # Appendix figure. Active vessel length distribution, no gear or entry-
+  # status split, just the raw size distribution Figure 2's length bins are
+  # drawn from.
+  # ==========================================================================
+  # "Active" matches the chapter's own definition elsewhere (Table 1,
+  # Appendix lifetime robustness), vessel_summary$meets.min.years, at least
+  # MIN_ACTIVE_YEARS years of positive revenue, not just n.held.fishery > 0
+  # in a single year.
+  if (!exists("vessel_summary")) load(panel_path)
+
+  active_vessels <- vessel_summary %>% filter(meets.min.years) %>% pull(Vessel.ADFG.Number)
+
+  fig_length_data <- vessel_char %>%
+    filter(Vessel.ADFG.Number %in% active_vessels, !is.na(vessel.length))
+
+  figure_vessel_length <- fig_length_data %>%
+    ggplot(aes(x = vessel.length)) +
+    geom_histogram(binwidth = 5, boundary = 0, fill = "steelblue", color = "white") +
     labs(
-      title = "Distribution of the unused permit share across vessels",
-      subtitle = "By modal gear class and median vessel length (feet)",
-      x = "Gear class", y = "Mean unused count share (per vessel)", fill = "Length (ft)"
+      title = "Distribution of active vessel length",
+      subtitle = paste0("Vessels active at least ", MIN_ACTIVE_YEARS, " years (n = ",
+                         nrow(fig_length_data), ")"),
+      x = "Vessel length (feet)", y = "Number of vessels"
     ) +
-    theme_minimal() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+    theme_minimal()
 
-  ggsave(file.path(figure_dir, "figure2_unused_share_distribution.png"),
-         figure2, width = 9, height = 5.5, dpi = 300)
+  ggsave(file.path(figure_dir, "figure_active_vessel_length_histogram.png"),
+         figure_vessel_length, width = 7, height = 5, dpi = 300)
 
-  cat("Wrote figure2_unused_share_distribution.png\n")
+  cat("Wrote figure_active_vessel_length_histogram.png\n")
 
 } else {
   warning(
