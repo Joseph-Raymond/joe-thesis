@@ -106,72 +106,86 @@ GEAR_CLASS_ORDER <- c(
   "Diving Hand Picking", "Unclassified"
 )
 
-# Picks the first gear dummy coded "Yes" for a vessel-year, in the priority
-# order of GEAR_COLUMNS above. A vessel rigged for more than one gear type is
-# assigned to whichever comes first in that list, which is an arbitrary but
-# documented tie-break, not a claim about which gear matters most.
-classify_gear <- function(df) {
-  gear_matrix <- df %>% select(any_of(GEAR_COLUMNS)) %>% mutate(across(everything(), ~ .x == "Yes"))
-  present <- intersect(GEAR_COLUMNS, names(gear_matrix))
-  gear_class <- rep(NA_character_, nrow(df))
-  for (g in present) {
-    gear_class[is.na(gear_class) & gear_matrix[[g]]] <- gsub("\\.", " ", g)
-  }
-  gear_class[is.na(gear_class)] <- "Unclassified"
-  gear_class
-}
-
+# Long format, one row per (vessel, year, gear class) for every gear dummy
+# marked "Yes" that year, plus one "Unclassified" row for a vessel-year
+# with no gear dummy marked "Yes" at all. A vessel-year with more than one
+# gear dummy "Yes" gets more than one row here on purpose. Replaces the old
+# single modal-gear-per-vessel assignment (one gear, picked by a fixed
+# priority order, for the vessel's whole career), so a vessel with more
+# than one gear type, or one that changed gear partway through its life,
+# contributes to every gear box it actually carried, in the specific years
+# it carried it, rather than being folded into one label for its whole
+# career (chat 2026-10-08, see that thread for the tradeoffs this raised,
+# most notably that gear here is what the vessel register says it is
+# EQUIPPED for in a given year, not necessarily what it actually fished
+# that year, no fix on this side of the data closes that gap).
 if (file.exists(vessel_register_path)) {
 
   vessel_register <- read_csv(vessel_register_path, show_col_types = FALSE) %>%
     rename(Vessel.ADFG.Number = ADFG.Number, Batch.Year = Year) %>%
     mutate(Vessel.ADFG.Number = as.integer(Vessel.ADFG.Number))
 
-  vessel_register <- vessel_register %>% mutate(gear_class = classify_gear(vessel_register))
+  gear_flags_long <- vessel_register %>%
+    select(Vessel.ADFG.Number, Batch.Year, Length, any_of(GEAR_COLUMNS)) %>%
+    pivot_longer(any_of(GEAR_COLUMNS), names_to = "gear_col", values_to = "flag")
 
-  # Modal gear class and median length per vessel, across its own panel,
-  # since both can change year to year (vessel_clean.R detects exactly this).
+  gear_long <- gear_flags_long %>%
+    filter(flag == "Yes") %>%
+    mutate(gear_class = gsub("\\.", " ", gear_col)) %>%
+    distinct(Vessel.ADFG.Number, Batch.Year, Length, gear_class)
+
+  unclassified_long <- gear_flags_long %>%
+    group_by(Vessel.ADFG.Number, Batch.Year, Length) %>%
+    summarise(any.yes = any(flag == "Yes", na.rm = TRUE), .groups = "drop") %>%
+    filter(!any.yes) %>%
+    transmute(Vessel.ADFG.Number, Batch.Year, Length, gear_class = "Unclassified")
+
+  gear_long <- bind_rows(gear_long, unclassified_long)
+
+  # Median length per vessel across its own panel, used only by the
+  # appendix vessel-length histogram below. Figure 2 itself now bins length
+  # per (vessel, gear class) from only the years that gear was carried
+  # (inside build_figure2), not one whole-career length reused in every box
+  # a vessel appears in.
   vessel_char <- vessel_register %>%
     group_by(Vessel.ADFG.Number) %>%
-    summarise(
-      gear_class    = names(sort(table(gear_class), decreasing = TRUE))[1],
-      vessel.length = median(Length, na.rm = TRUE),
-      .groups = "drop"
-    ) %>%
-    mutate(
-      # 0-20 and 20-30 merged into one 0-30 bin, and 40-50/50-60 already
-      # merged into 40-60 below that, by request, three length bins rather
-      # than five.
-      length.bin = cut(
-        vessel.length,
-        breaks = c(0, 30, 40, 60, Inf),
-        labels = c("0-30", "30-40", "40-60", "60+"),
-        right = FALSE
-      )
-    )
+    summarise(vessel.length = median(Length, na.rm = TRUE), .groups = "drop")
 
-  # One call per entry-status split (open, limited), same gear x length-bin
-  # box plot either way, only the input vessel-year object, the column it
-  # averages, and the output file differ.
+  LENGTH_BREAKS3 <- c(0, 30, 40, 60, Inf)
+  LENGTH_LABELS3 <- c("0-30", "30-40", "40-60", "60+")
+
+  # One call per entry-status split (open, limited). Joins that status's
+  # vessel-year measure onto every (year, gear class) row the vessel
+  # carried that year, then averages within (vessel, gear class) over only
+  # the matched years, so a vessel that carried two gears in different
+  # periods gets its own correct average in each box rather than one
+  # blended whole-career number copied into both.
   build_figure2 <- function(vessel_year_obj, n_held_col, measure_col, subtitle, file_name) {
-    df <- vessel_year_obj %>%
+    vessel_year_measure <- vessel_year_obj %>%
       filter(.data[[n_held_col]] > 0) %>%
-      group_by(Vessel.ADFG.Number) %>%
-      summarise(mean.unused.count.share = mean(.data[[measure_col]], na.rm = TRUE), .groups = "drop") %>%
-      inner_join(vessel_char, by = "Vessel.ADFG.Number") %>%
+      transmute(Vessel.ADFG.Number, Batch.Year, measure = .data[[measure_col]])
+
+    df <- vessel_year_measure %>%
+      inner_join(gear_long, by = c("Vessel.ADFG.Number", "Batch.Year")) %>%
+      group_by(Vessel.ADFG.Number, gear_class) %>%
+      summarise(
+        mean.unused.count.share = mean(measure, na.rm = TRUE),
+        vessel.length           = median(Length, na.rm = TRUE),
+        .groups = "drop"
+      ) %>%
+      mutate(length.bin = cut(vessel.length, breaks = LENGTH_BREAKS3,
+                               labels = LENGTH_LABELS3, right = FALSE)) %>%
       filter(!is.na(length.bin))
 
     # Fish wheel is a non-motorized subsistence/personal-use gear, out of
     # place next to genuine commercial gear classes in a fleet
     # diversification figure, dropped from Figure 2 by request rather than
     # folded into "Unclassified" or left as its own (likely tiny) box.
-    # classify_gear() itself is untouched, so this only affects what gets
-    # plotted here.
     n_fish_wheel <- sum(df$gear_class == "Fish Wheel")
     df <- df %>%
       filter(gear_class != "Fish Wheel") %>%
       mutate(gear_class = factor(gear_class, levels = GEAR_CLASS_ORDER))
-    cat("Vessels excluded from", file_name, "for Fish Wheel gear class:", n_fish_wheel, "\n")
+    cat("Vessel-gear boxes excluded from", file_name, "for Fish Wheel gear class:", n_fish_wheel, "\n")
 
     fig <- df %>%
       ggplot(aes(x = gear_class, y = mean.unused.count.share, fill = length.bin)) +
@@ -179,7 +193,7 @@ if (file.exists(vessel_register_path)) {
       labs(
         title = "Distribution of the unused permit share across vessels",
         subtitle = subtitle,
-        x = "Gear class", y = "Mean unused count share (per vessel)", fill = "Length (ft)"
+        x = "Gear class", y = "Mean unused count share (per vessel, per gear carried)", fill = "Length (ft)"
       ) +
       theme_minimal() +
       theme(axis.text.x = element_text(angle = 45, hjust = 1))
@@ -189,11 +203,11 @@ if (file.exists(vessel_register_path)) {
   }
 
   build_figure2(vessel_year_open, "n.held.open", "unused.count.share.open",
-                "Open-entry fisheries only, by modal gear class and median vessel length (feet)",
+                "Open-entry fisheries only. A vessel appears once per gear type it carried, averaged over the years it carried that gear",
                 "figure2_unused_share_distribution_open.png")
 
   build_figure2(vessel_year_limited, "n.held.lim", "unused.count.share.lim",
-                "Limited-entry fisheries only, by modal gear class and median vessel length (feet)",
+                "Limited-entry fisheries only. A vessel appears once per gear type it carried, averaged over the years it carried that gear",
                 "figure2_unused_share_distribution_limited.png")
 
   # ==========================================================================
