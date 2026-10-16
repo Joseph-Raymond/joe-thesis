@@ -258,11 +258,27 @@ point it is made in the code.
   with a smooth multi-year revenue trend (inflation being one cause among
   several), independent of any real reallocation behavior. The current
   version constructs a counterfactual revenue-level series per vessel,
-  `sum_j w_ij * fleet_mean_revenue_jt` over the vessel's own active years,
-  and takes its CV the same way `rev.cv` is computed everywhere else in this
-  pipeline, see the comment block at the top of the Figure 3 section in
-  `05_table4_figure3.R`. This also matches Chapter 2's own CV definition,
-  which is levels-based.
+  `sum_j w_ij * fleet_mean_revenue_jt / fbar_ij` over the vessel's own
+  active years (`fbar_ij` is fishery j's fleet mean revenue averaged over
+  those same years), and takes its CV the same way `rev.cv` is computed
+  everywhere else in this pipeline, see the comment block at the top of the
+  Figure 3 section in `05_table4_figure3.R`. This also matches Chapter 2's
+  own CV definition, which is levels-based.
+- **The passive benchmark indexes each fishery's fleet series before
+  weighting (fixed 2026-10-16).** The earlier version weighted raw dollars,
+  `sum_j w_ij * fleet_mean_revenue_jt`, so a high-dollar fishery dominated
+  the benchmark whatever its share of the vessel's own revenue (a 50/50
+  vessel across a $20k and a $400k fishery got a benchmark about 95% the big
+  one). Specialists are unaffected because the scale cancels for one
+  fishery. Every Figure 3 and 3b output (lifetime and rolling, vessel and
+  owner) and the gap numbers quoted in `writeup/chapter3_writeup.tex`
+  predate the fix. Rerun `05_table4_figure3.R`, `05_table4_figure3_owner.R`,
+  `rolling_periods/01b_build_rolling_panel.R`,
+  `rolling_periods/01b_build_rolling_panel_owner.R`, and both `05b_`
+  scripts. The old version is kept as `passive.cv.dollar`, and each of the
+  four Figure 3 scripts writes a `passive_benchmark_comparison*.csv` with
+  old and new gaps side by side per Phi bin. The `05b_` scripts stop with an
+  error if they load a rolling panel saved before the fix.
 - **Table 4's main-text models exclude single-fishery specialists, and
   Figure 3 splits into a main-text plot (multi-fishery vessels) and a
   separate appendix plot (specialists only).** A vessel that only ever

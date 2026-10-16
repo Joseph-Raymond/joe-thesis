@@ -239,15 +239,23 @@ cat("Wrote table4_decomposition_regression_owner_residency.tex\n")
 #
 # For owner i in year t, restricted to i's own active years (the same
 # window rev.cv is computed over), passive_revenue_it = sum_j w_ij *
-# fleet_mean_revenue_owner_jt, what i would have earned that year by
-# holding its own fixed long-run weights (owner_mean_share, the same
-# weights that define H_LR) against what the fleet of owners as a whole
-# actually earned in each of i's held fisheries that year. passive.cv_i =
-# sd/mean of that series, same formula, same window as rev.cv, only the
-# revenue-generating process (actual vs counterfactual-fixed-weights)
-# differs. This also matches Chapter 2's own CV definition (levels-based),
-# and keeps this owner-level cut comparable to the vessel-level one rather
-# than quietly using a different metric.
+# fleet_mean_revenue_owner_jt / fbar_ij, what i would have earned that year
+# by holding its own fixed long-run weights (owner_mean_share, the same
+# weights that define H_LR) if its revenue in each fishery had moved in
+# proportion to the fleet of owners'. fbar_ij is fishery j's fleet mean
+# revenue averaged over i's own active years, so each fishery's fleet
+# series is indexed to 1 before weighting. passive.cv_i = sd/mean of that
+# series, same formula, same window as rev.cv, only the revenue-generating
+# process (actual vs counterfactual-fixed-weights) differs. This also
+# matches Chapter 2's own CV definition (levels-based), and keeps this
+# owner-level cut comparable to the vessel-level one rather than quietly
+# using a different metric.
+#
+# The indexing step fixes the same dollar-scale problem described in
+# 05_table4_figure3.R, a high-dollar fishery dominating the benchmark
+# whatever its share of the owner's own revenue. The old dollar-weighted
+# version is kept as passive.cv.dollar for one comparison printout below,
+# it is not used in any figure.
 #
 # Reading the figure, same as the vessel-level version, a point above the
 # 45-degree line experienced more revenue instability than holding its own
@@ -288,14 +296,24 @@ passive_series_owner <- owner_mean_share %>%
   left_join(fleet_mean_revenue_owner %>% select(Batch.Year, Fishery, fleet_mean_revenue),
             by = c("Batch.Year", "Fishery")) %>%
   mutate(fleet_mean_revenue = replace_na(fleet_mean_revenue, 0)) %>%
+  group_by(File.Number, Fishery) %>%
+  mutate(
+    fleet.mean.own.years = mean(fleet_mean_revenue),
+    fleet_index = if_else(fleet.mean.own.years > 0, fleet_mean_revenue / fleet.mean.own.years, 0)
+  ) %>%
   group_by(File.Number, Batch.Year) %>%
-  summarise(passive_revenue = sum(mean.share.fishery * fleet_mean_revenue), .groups = "drop")
+  summarise(
+    passive_revenue        = sum(mean.share.fishery * fleet_index),
+    passive_revenue_dollar = sum(mean.share.fishery * fleet_mean_revenue),
+    .groups = "drop"
+  )
 
 passive_benchmark_owner <- passive_series_owner %>%
   group_by(File.Number) %>%
   summarise(
-    n.years.passive = n(),
-    passive.cv = sd(passive_revenue) / mean(passive_revenue),
+    n.years.passive   = n(),
+    passive.cv        = sd(passive_revenue) / mean(passive_revenue),
+    passive.cv.dollar = sd(passive_revenue_dollar) / mean(passive_revenue_dollar),
     .groups = "drop"
   )
 
@@ -417,6 +435,51 @@ gap_by_phi_owner <- bind_rows(specialist_summary_owner, multi_summary_owner) %>%
          is.specialist.bin = bin.order == 0)
 
 print(gap_by_phi_owner)
+
+# ----------------------------------------------------------------------
+# Indexed versus old dollar-weighted passive benchmark (owner)
+# ----------------------------------------------------------------------
+#
+# Same check as 05_table4_figure3.R, at owner grain. max.abs.diff must be
+# about 0 in the specialist row because the dollar scale cancels for a
+# one-fishery portfolio. Bin-level aggregates only, safe to bring off the
+# server.
+
+summarise_passive_comparison_owner <- function(df) {
+  df %>%
+    summarise(
+      n                      = n(),
+      mean.Phi               = mean(Phi),
+      mean.passive.cv        = mean(passive.cv),
+      mean.passive.cv.dollar = mean(passive.cv.dollar),
+      cor.passive.cv         = cor(passive.cv, passive.cv.dollar),
+      mean.gap               = mean(gap),
+      mean.gap.dollar        = mean(gap.dollar),
+      share.gap.sign.flip    = mean(sign(gap) != sign(gap.dollar)),
+      max.abs.diff           = max(abs(passive.cv - passive.cv.dollar)),
+      .groups = "drop"
+    )
+}
+
+comparison_data_owner <- fig3b_data_owner %>% mutate(gap.dollar = rev.cv - passive.cv.dollar)
+
+passive_comparison_owner <- bind_rows(
+  comparison_data_owner %>% filter(is.specialist) %>%
+    summarise_passive_comparison_owner() %>% mutate(bin.label = "Specialists"),
+  comparison_data_owner %>% filter(!is.specialist) %>%
+    mutate(phi.bin = ntile(Phi, N_GAP_BINS)) %>%
+    group_by(phi.bin) %>%
+    summarise_passive_comparison_owner() %>%
+    mutate(bin.label = paste0("Q", phi.bin)) %>%
+    select(-phi.bin),
+  comparison_data_owner %>% filter(!is.specialist) %>%
+    summarise_passive_comparison_owner() %>% mutate(bin.label = "All multi-fishery")
+) %>%
+  relocate(bin.label)
+
+print(passive_comparison_owner, width = Inf)
+write.csv(passive_comparison_owner, file.path(table_dir, "passive_benchmark_comparison_owner.csv"), row.names = FALSE)
+cat("Wrote passive_benchmark_comparison_owner.csv\n")
 
 figure3b_owner <- gap_by_phi_owner %>%
   ggplot(aes(x = bin.label, y = mean.gap, color = is.specialist.bin)) +

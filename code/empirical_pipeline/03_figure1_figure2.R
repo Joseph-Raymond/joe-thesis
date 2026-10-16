@@ -95,15 +95,17 @@ GEAR_COLUMNS <- c(
 # Figure 2's x-axis order, gear families with similar names grouped next to
 # each other (the two seines, the three gill nets, the two trolls, the four
 # trawls) rather than the plain alphabetical order a character x-axis would
-# default to. Fish Wheel omitted, it is filtered out of fig2_data below.
-# Unclassified pinned last as the catch-all it is, not a gear family.
+# default to. Fish Wheel and Unclassified are both dropped inside
+# build_figure2 below (Fish Wheel is a non-motorized subsistence gear out of
+# place here, Unclassified is "no gear dummy matched" rather than a real
+# gear), so neither needs a slot in this ordering.
 GEAR_CLASS_ORDER <- c(
   "Purse Seine", "Beach Seine",
   "Drift Gill Net", "Set Gill Net", "Herring Gill Net",
   "Hand Troll", "Power Troll",
   "Otter Trawl", "Double Otter Trawl", "Beam Trawl", "Pair Trawl",
   "Long Line", "Pots", "Scallop Dredge", "Mechanical Jig",
-  "Diving Hand Picking", "Unclassified"
+  "Diving Hand Picking"
 )
 
 # Long format, one row per (vessel, year, gear class) for every gear dummy
@@ -179,13 +181,31 @@ if (file.exists(vessel_register_path)) {
 
     # Fish wheel is a non-motorized subsistence/personal-use gear, out of
     # place next to genuine commercial gear classes in a fleet
-    # diversification figure, dropped from Figure 2 by request rather than
-    # folded into "Unclassified" or left as its own (likely tiny) box.
+    # diversification figure. Unclassified is "no gear dummy was Yes this
+    # vessel-year" rather than a real gear, left in gear_long so it is not
+    # silently lost (it still counts toward the vessel's total, and shows
+    # up in the n-per-box table below), but not plotted as its own box.
+    # Both dropped from Figure 2 by request.
     n_fish_wheel <- sum(df$gear_class == "Fish Wheel")
+    n_unclassified <- sum(df$gear_class == "Unclassified")
     df <- df %>%
-      filter(gear_class != "Fish Wheel") %>%
+      filter(!gear_class %in% c("Fish Wheel", "Unclassified")) %>%
       mutate(gear_class = factor(gear_class, levels = GEAR_CLASS_ORDER))
     cat("Vessel-gear boxes excluded from", file_name, "for Fish Wheel gear class:", n_fish_wheel, "\n")
+    cat("Vessel-gear boxes excluded from", file_name, "for Unclassified gear class:", n_unclassified, "\n")
+
+    # n per plotted box (gear class x length bin), the thing chat asked
+    # where to check. Printed here and also written to table_dir as a CSV
+    # with the same name as the figure, so it does not have to be re-read
+    # off the console every time.
+    box_counts <- df %>% count(gear_class, length.bin, name = "n")
+    cat("\n===== Vessel-gear count per box,", file_name, "=====\n")
+    print(box_counts, n = Inf)
+    if (exists("table_dir")) {
+      counts_file <- paste0(tools::file_path_sans_ext(file_name), "_n_per_box.csv")
+      write.csv(box_counts, file.path(table_dir, counts_file), row.names = FALSE)
+      cat("Wrote", counts_file, "to", table_dir, "\n")
+    }
 
     fig <- df %>%
       ggplot(aes(x = gear_class, y = mean.unused.count.share, fill = length.bin)) +

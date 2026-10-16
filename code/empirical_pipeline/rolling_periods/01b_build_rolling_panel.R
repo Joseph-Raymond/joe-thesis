@@ -310,6 +310,13 @@ print(table(
 # baseline's passive benchmark in 05_table4_figure3.R), no renormalization
 # needed. fleet_mean_revenue filled to 0 for a (fishery, year) with zero
 # fleet-wide activity, matching 05_.
+#
+# Each fishery's fleet series is indexed to 1 over the vessel's own years in
+# the window before weighting, for the dollar-scale reason given in
+# 05_table4_figure3.R (without it a high-dollar fishery dominates the
+# benchmark whatever its share of the vessel's own revenue). The old
+# dollar-weighted version is kept as passive.cv.dollar so 05b_ can print a
+# comparison, nothing plots it.
 
 t_passive <- Sys.time()
 passive_series_window.rolling <- S_ijw.rolling %>%
@@ -321,14 +328,24 @@ passive_series_window.rolling <- S_ijw.rolling %>%
   left_join(fleet_mean_revenue %>% select(Batch.Year, Fishery, fleet_mean_revenue),
             by = c("Batch.Year", "Fishery")) %>%
   mutate(fleet_mean_revenue = replace_na(fleet_mean_revenue, 0)) %>%
+  group_by(Vessel.ADFG.Number, window.start, Fishery) %>%
+  mutate(
+    fleet.mean.own.years = mean(fleet_mean_revenue),
+    fleet_index = if_else(fleet.mean.own.years > 0, fleet_mean_revenue / fleet.mean.own.years, 0)
+  ) %>%
   group_by(Vessel.ADFG.Number, window.start, Batch.Year) %>%
-  summarise(passive_revenue = sum(weight * fleet_mean_revenue), .groups = "drop")
+  summarise(
+    passive_revenue        = sum(weight * fleet_index),
+    passive_revenue_dollar = sum(weight * fleet_mean_revenue),
+    .groups = "drop"
+  )
 
 passive_benchmark_window.rolling <- passive_series_window.rolling %>%
   group_by(Vessel.ADFG.Number, window.start) %>%
   summarise(
     n.years.passive.window = n(),
     passive.cv             = sd(passive_revenue) / mean(passive_revenue),
+    passive.cv.dollar      = sd(passive_revenue_dollar) / mean(passive_revenue_dollar),
     .groups = "drop"
   )
 cat("passive_benchmark_window.rolling:", nrow(passive_benchmark_window.rolling), "rows in",

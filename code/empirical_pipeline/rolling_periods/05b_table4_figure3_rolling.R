@@ -32,6 +32,14 @@ if (!exists("vessel_window_summary.rolling") || !exists("passive_benchmark_windo
   load(rolling_panel_path)
 }
 
+# A ch3_rolling.rdata saved before the passive benchmark was indexed (see
+# 01b_ Section 11) has no passive.cv.dollar column, and its passive.cv is
+# the old dollar-weighted one. Stop rather than plot that under the new name.
+if (!"passive.cv.dollar" %in% names(passive_benchmark_window.rolling)) {
+  stop("passive_benchmark_window.rolling predates the indexed passive benchmark. ",
+       "Rerun rolling_periods/01b_build_rolling_panel.R first.")
+}
+
 # ============================================================================
 # 1. Sample construction
 # ============================================================================
@@ -242,6 +250,57 @@ gap_by_phi.rolling <- bind_rows(specialist_summary.rolling, multi_summary.rollin
   mutate(bin.label = fct_reorder(bin.label, bin.order), is.specialist.bin = bin.order == 0)
 
 print(gap_by_phi.rolling)
+
+# ----------------------------------------------------------------------
+# Indexed versus old dollar-weighted passive benchmark (rolling)
+# ----------------------------------------------------------------------
+#
+# Same check as 05_table4_figure3.R, on the same Phi bins as Figure
+# 3b-rolling. mean.gap and mean.gap.dollar use the same two-stage
+# vessel-mean averaging as two_stage_bin_summary() so mean.gap matches the
+# figure. max.abs.diff must be about 0 in the specialist row because the
+# dollar scale cancels for a one-fishery window. Bin-level aggregates only,
+# safe to bring off the server.
+
+summarise_passive_comparison.rolling <- function(df) {
+  vessel_means <- df %>%
+    group_by(Vessel.ADFG.Number) %>%
+    summarise(gap = mean(gap), gap.dollar = mean(gap.dollar), .groups = "drop")
+  tibble(
+    n                      = nrow(df),
+    n.vessels              = nrow(vessel_means),
+    mean.Phi               = mean(df$Phi),
+    mean.passive.cv        = mean(df$passive.cv),
+    mean.passive.cv.dollar = mean(df$passive.cv.dollar),
+    cor.passive.cv         = cor(df$passive.cv, df$passive.cv.dollar),
+    mean.gap               = mean(vessel_means$gap),
+    mean.gap.dollar        = mean(vessel_means$gap.dollar),
+    share.gap.sign.flip    = mean(sign(df$gap) != sign(df$gap.dollar)),
+    max.abs.diff           = max(abs(df$passive.cv - df$passive.cv.dollar))
+  )
+}
+
+comparison_data.rolling <- fig3b_data.rolling %>% mutate(gap.dollar = rev.cv - passive.cv.dollar)
+
+passive_comparison.rolling <- bind_rows(
+  comparison_data.rolling %>% filter(is.specialist.window) %>%
+    summarise_passive_comparison.rolling() %>% mutate(bin.label = "Specialists"),
+  comparison_data.rolling %>% filter(!is.specialist.window) %>%
+    mutate(phi.bin = ntile(Phi, N_GAP_BINS_ROLLING)) %>%
+    group_by(phi.bin) %>%
+    group_modify(~ summarise_passive_comparison.rolling(.x)) %>%
+    ungroup() %>%
+    mutate(bin.label = paste0("Q", phi.bin)) %>%
+    select(-phi.bin),
+  comparison_data.rolling %>% filter(!is.specialist.window) %>%
+    summarise_passive_comparison.rolling() %>% mutate(bin.label = "All multi-fishery")
+) %>%
+  relocate(bin.label)
+
+print(passive_comparison.rolling, width = Inf)
+write.csv(passive_comparison.rolling, file.path(table_dir, "passive_benchmark_comparison_rolling.csv"),
+          row.names = FALSE)
+cat("Wrote passive_benchmark_comparison_rolling.csv\n")
 
 figure3b.rolling <- gap_by_phi.rolling %>%
   ggplot(aes(x = bin.label, y = mean.gap, color = is.specialist.bin)) +

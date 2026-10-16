@@ -82,6 +82,15 @@ if (!exists("owner_window_summary.rolling") || !exists("passive_benchmark_window
   load(rolling_owner_panel_path)
 }
 
+# A ch3_rolling_owner.rdata saved before the passive benchmark was indexed
+# (see 01b_build_rolling_panel_owner.R Section 11) has no passive.cv.dollar
+# column, and its passive.cv is the old dollar-weighted one. Stop rather
+# than plot that under the new name.
+if (!"passive.cv.dollar" %in% names(passive_benchmark_window_owner.rolling)) {
+  stop("passive_benchmark_window_owner.rolling predates the indexed passive benchmark. ",
+       "Rerun rolling_periods/01b_build_rolling_panel_owner.R first.")
+}
+
 # ============================================================================
 # 1. Sample construction
 # ============================================================================
@@ -348,6 +357,55 @@ gap_by_phi_owner.rolling <- bind_rows(specialist_summary_owner.rolling, multi_su
   mutate(bin.label = fct_reorder(bin.label, bin.order), is.specialist.bin = bin.order == 0)
 
 print(gap_by_phi_owner.rolling)
+
+# ----------------------------------------------------------------------
+# Indexed versus old dollar-weighted passive benchmark (owner, rolling)
+# ----------------------------------------------------------------------
+#
+# Same check as 05b_table4_figure3_rolling.R, at owner grain, with the same
+# two-stage owner-mean averaging as two_stage_bin_summary_owner() so
+# mean.gap matches the figure. max.abs.diff must be about 0 in the
+# specialist row. Bin-level aggregates only, safe to bring off the server.
+
+summarise_passive_comparison_owner.rolling <- function(df) {
+  owner_means <- df %>%
+    group_by(File.Number) %>%
+    summarise(gap = mean(gap), gap.dollar = mean(gap.dollar), .groups = "drop")
+  tibble(
+    n                      = nrow(df),
+    n.owners               = nrow(owner_means),
+    mean.Phi               = mean(df$Phi),
+    mean.passive.cv        = mean(df$passive.cv),
+    mean.passive.cv.dollar = mean(df$passive.cv.dollar),
+    cor.passive.cv         = cor(df$passive.cv, df$passive.cv.dollar),
+    mean.gap               = mean(owner_means$gap),
+    mean.gap.dollar        = mean(owner_means$gap.dollar),
+    share.gap.sign.flip    = mean(sign(df$gap) != sign(df$gap.dollar)),
+    max.abs.diff           = max(abs(df$passive.cv - df$passive.cv.dollar))
+  )
+}
+
+comparison_data_owner.rolling <- fig3b_data_owner.rolling %>% mutate(gap.dollar = rev.cv - passive.cv.dollar)
+
+passive_comparison_owner.rolling <- bind_rows(
+  comparison_data_owner.rolling %>% filter(is.specialist.window) %>%
+    summarise_passive_comparison_owner.rolling() %>% mutate(bin.label = "Specialists"),
+  comparison_data_owner.rolling %>% filter(!is.specialist.window) %>%
+    mutate(phi.bin = ntile(Phi, N_GAP_BINS_ROLLING_OWNER)) %>%
+    group_by(phi.bin) %>%
+    group_modify(~ summarise_passive_comparison_owner.rolling(.x)) %>%
+    ungroup() %>%
+    mutate(bin.label = paste0("Q", phi.bin)) %>%
+    select(-phi.bin),
+  comparison_data_owner.rolling %>% filter(!is.specialist.window) %>%
+    summarise_passive_comparison_owner.rolling() %>% mutate(bin.label = "All multi-fishery")
+) %>%
+  relocate(bin.label)
+
+print(passive_comparison_owner.rolling, width = Inf)
+write.csv(passive_comparison_owner.rolling, file.path(table_dir, "passive_benchmark_comparison_rolling_owner.csv"),
+          row.names = FALSE)
+cat("Wrote passive_benchmark_comparison_rolling_owner.csv\n")
 
 figure3b_owner.rolling <- gap_by_phi_owner.rolling %>%
   ggplot(aes(x = bin.label, y = mean.gap, color = is.specialist.bin)) +
