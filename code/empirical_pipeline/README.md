@@ -112,7 +112,29 @@ existing code).
 09_seasonal_overlap.R             # Table 12, Figure 11
 10_network_similarity.R           # Table 13, Table 14
 11_switch_event_weights.R         # Figure 7, Figure 7b
+14_cv_decomposition.R             # Exact CV split (fishery riskiness, vessel-specific, diversification), needs rolling_periods/01b_ too
 ```
+
+`14_cv_decomposition.R` splits each vessel's (or vessel-window's) log CV
+exactly into three pieces, fishery riskiness (`log U_fleet`, the
+revenue-weighted CV of the fishery-level series for the fisheries it is in),
+vessel-specific volatility (`log(U / U_fleet)`, which includes entry and
+exit), and diversification (`log DR`, where `DR = CV / U` and `U` is the CV it
+would have if its fishery revenue streams moved in lockstep). The pieces add
+to log CV for every unit, so regressing each piece on log CV gives its share
+of the variance, and the shares sum to 1. It reads `ch3_panel.rdata` and
+`ch3_rolling.rdata` (so `rolling_periods/01b_build_rolling_panel.R` must have
+run), uses the same lifetime and rolling samples as Table 4, and writes
+`table_cv_decomposition.tex`, `cv_decomposition_shares.csv`,
+`cv_decomposition_by_phi.csv`, `figure_cv_decomposition_by_phi_rolling.png`,
+and `intermediate data/ch3_cv_decomposition.rdata`. Its header comment has the
+full identity. It prints three checks worth reading before trusting the
+output. The max relative gap between summed fishery revenue and
+`vessel.year.rev` and the max `|CV - rev.cv|` should both be about 0, and
+the max `DR` must not exceed 1. The fishery-level series is leave-one-out,
+and when a vessel was the only one to fish a fishery that year it falls back
+to the vessel's own revenue. The script prints how much revenue weight that
+fallback carries.
 
 `11_switch_event_weights.R` is numbered last purely for `run_all.R`
 ordering convenience. Its real dependencies are `01_build_panel.R`
