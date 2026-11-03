@@ -113,6 +113,7 @@ existing code).
 10_network_similarity.R           # Table 13, Table 14
 11_switch_event_weights.R         # Figure 7, Figure 7b
 14_cv_decomposition.R             # Exact CV split (fishery riskiness, vessel-specific, diversification), needs rolling_periods/01b_ too
+14_cv_decomposition_owner.R       # Owner-level twin of the above, missing fishery-years as zeros and left out, side by side
 ```
 
 `14_cv_decomposition.R` splits each vessel's (or vessel-window's) log CV
@@ -135,6 +136,27 @@ the max `DR` must not exceed 1. The fishery-level series is leave-one-out,
 and when a vessel was the only one to fish a fishery that year it falls back
 to the vessel's own revenue. The script prints how much revenue weight that
 fallback carries.
+
+`14_cv_decomposition_owner.R` runs the same split at the owner (permit
+holder) grain, two ways. The first counts a year the owner was active but did
+not fish fishery j as a zero, exactly as `14_` does. The second leaves those
+years out, so each fishery's CV (the owner's and the fleet's) is taken over
+the years the owner actually fished it. Zeros make a switcher look volatile
+within each fishery and well hedged across them, and the two errors cancel in
+CV. Leaving them out keeps the owner-specific factor clean, but the third
+factor (`CV / U`) then also holds the risk of moving between fisheries and can
+exceed 1. A fishery fished in only one of a unit's years gets a CV of 0, so
+its risk lands in the third factor. Both versions run on the same units. It
+reads `ch3_panel.rdata` and `ch3_rolling_owner.rdata` (so
+`rolling_periods/01b_build_rolling_panel_owner.R` must have run) and writes
+`table_cv_decomposition_owner.tex`, `cv_decomposition_shares_owner.csv`,
+`cv_decomposition_by_phi_owner.csv`,
+`cv_decomposition_mode_comparison_owner.csv`,
+`figure_cv_decomposition_by_phi_rolling_owner.png`, and
+`intermediate data/ch3_cv_decomposition_owner.rdata`. On top of the `14_`
+checks it prints a no-gap check (units that fished every fishery in every
+active year must come out identical in both versions) and the revenue weight
+on one-year and two-year spells.
 
 `11_switch_event_weights.R` is numbered last purely for `run_all.R`
 ordering convenience. Its real dependencies are `01_build_panel.R`
