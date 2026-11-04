@@ -40,14 +40,34 @@
 #             switching). Above 1 means the moves added more risk than the
 #             offsetting took away.
 #
+# FOUR FACTORS IN THE "ACTIVE" VERSION. Taken over the owner's spells only,
+# U_fleet_i would depend on the owner's own entry and exit. Short spells look
+# calm, a one-year spell looks riskless, and closures drop out because the
+# owner cannot fish a closed fishery. So fishery riskiness is always the
+# fleet's CV over all the unit's active years (U_fleet_all_i, the "zero"
+# version's U_fleet_i), and the gap to the spell-years U_fleet_i gets its own
+# factor,
+#
+#   CV_i = U_fleet_all_i * (U_fleet_i / U_fleet_all_i) * (U_i / U_fleet_i) * (CV_i / U_i)
+#
+# The new second factor (the spell effect) is below 1 when the fleet looks
+# calmer during the owner's spells than over all its years, because the
+# spells are short, miss closures or fall in the fishery's calmer years (the
+# three cannot be told apart here). In the "zero" version both fleet terms
+# cover the same years, so the spell effect is exactly 1 and the split is the
+# three factors of 14_. The spell effect only cleans the fishery factor. The
+# owner's own CVs are still taken over its spells, so any short-spell effect
+# on them stays in the third factor.
+#
 # Two things about the "active" version worth knowing before reading it.
 # (1) A fishery fished in only one of a unit's active years has no CV of its
-# own. Its CV_ij and CV_fleet_ij are set to 0, so all of its risk lands in the
-# third factor, which fits because that risk is pure entry and exit. The
+# own. Its CV_ij and CV_fleet_ij are set to 0, so the owner's side of its risk
+# lands in the third factor and the fleet's side in the spell effect. The
 # revenue weight on one-year spells, and on two-year spells (whose CV rests on
-# two numbers), is printed and saved. (2) A fishery-wide closure no longer
-# counts as fishery riskiness, since the owner did not fish j that year
-# either. Its effect on R_it moves to the third factor.
+# two numbers), is printed and saved. (2) A fishery-wide closure still counts
+# as fishery riskiness, but the spell effect takes it back out, since the
+# owner did not fish j that year either. Its effect on R_it lands in the third
+# factor.
 #
 # THE COMPARISON. Both versions are computed on the same units, so realized CV
 # and its variance are identical in the two, and only the split differs. A
@@ -85,9 +105,14 @@ MODES <- c(zero = "Missing years as zeros", active = "Active years only")
 
 PIECES <- c(
   p.fishery = "Fishery riskiness",
+  p.spell   = "Spell effect",
   p.owner   = "Owner-specific volatility",
   p.combine = "Third factor"
 )
+
+# The spell effect is exactly 1 with zeros, so that version's shares and table
+# leave it out
+mode_pieces <- function(mode) if (mode == "zero") setdiff(names(PIECES), "p.spell") else names(PIECES)
 
 # The third factor means something different in each version
 THIRD_LABEL <- c(zero = "Diversification (DR)", active = "Combining and switching")
@@ -140,7 +165,8 @@ fleet_stats_owner <- fleet_stats_owner[, .(Batch.Year, Fishery, fleet_mean_reven
 # The fishery-level series is built exactly as in 14_ Section 2 (closures as
 # 0, leave-one-out when the owner fished j alongside others, the full mean
 # when it was the only one). In a year the owner fished j the fleet was
-# active by definition, so the "active" version never sees a closure zero.
+# active by definition, so the spell-years fleet CV never sees a closure zero.
+# The all-years fleet CV behind fishery riskiness does.
 
 cv_decompose_owner <- function(unit_years, unit_cols, label) {
   unit_years <- as.data.table(unit_years)[, c(unit_cols, "Batch.Year", "owner.year.rev"), with = FALSE]
@@ -220,26 +246,29 @@ cv_decompose_owner <- function(unit_years, unit_cols, label) {
   ), by = unit_cols]
   units <- as_tibble(merge(totals, units, by = unit_cols))
 
-  # One row per unit and version
+  # One row per unit and version. U.fleet covers the same years as U, and
+  # U.fleet.all all the unit's active years, so with zeros the two are equal
+  # and the spell effect is exactly 1.
   long <- bind_rows(
     units %>% mutate(mode = "zero", U.fleet = U.fleet.zero, U = sum.sd.y / mean.R),
     units %>% mutate(mode = "active", U.fleet = U.fleet.active, U = U.active)
   ) %>%
     mutate(
+      U.fleet.all = U.fleet.zero,
       CV        = sd.R / mean.R,
       combine   = CV / U,
       log.cv    = log(CV),
-      p.fishery = log(U.fleet),
+      p.fishery = log(U.fleet.all),
+      p.spell   = log(U.fleet / U.fleet.all),
       p.owner   = log(U / U.fleet),
       p.combine = log(combine)
     ) %>%
-    select(all_of(unit_cols), mode, n.years, n.fisheries, CV, U.fleet, U, combine,
+    select(all_of(unit_cols), mode, n.years, n.fisheries, CV, U.fleet.all, U.fleet, U, combine,
            log.cv, all_of(names(PIECES)), weight.spell1, weight.spell2, no.gaps, fallback.weight)
 
   zero_rows   <- long %>% filter(mode == "zero")
   active_rows <- long %>% filter(mode == "active")
-  no_gap_diff <- with(zero_rows, abs(p.fishery - active_rows$p.fishery) + abs(p.owner - active_rows$p.owner) +
-                        abs(p.combine - active_rows$p.combine))
+  no_gap_diff <- rowSums(abs(as.matrix(zero_rows[names(PIECES)]) - as.matrix(active_rows[names(PIECES)])))
   no_gap_diff <- no_gap_diff[zero_rows$no.gaps & is.finite(no_gap_diff)]
 
   cat("\n===== CV decomposition,", label, "=====\n")
@@ -254,6 +283,8 @@ cv_decompose_owner <- function(unit_years, unit_cols, label) {
       " on two-year spells", round(mean(units$weight.spell2), 4), "\n")
   cat("Share of units with the active-years third factor above 1",
       round(mean(active_rows$combine > 1, na.rm = TRUE), 4), "\n")
+  cat("Geometric mean spell effect in the active version (1 means the spells see the same fleet",
+      "risk as all years)", round(exp(mean(active_rows$p.spell[is.finite(active_rows$p.spell)])), 4), "\n")
   cat("Mean revenue weight on fishery-years where the owner was the only participant",
       "(leave-one-out fallback)", round(mean(units$fallback.weight), 4),
       " share of units with any", round(mean(units$fallback.weight > 0), 4), "\n")
@@ -266,7 +297,8 @@ cv_decompose_owner <- function(unit_years, unit_cols, label) {
 # multi-fishery units alone
 keep_common_units <- function(df, unit_cols, specialist_col, grain) {
   df <- df %>%
-    mutate(ok = is.finite(log.cv) & is.finite(p.fishery) & is.finite(p.owner) & is.finite(p.combine))
+    mutate(ok = is.finite(log.cv) & is.finite(p.fishery) & is.finite(p.spell) & is.finite(p.owner) &
+             is.finite(p.combine))
   unit_ok <- df %>%
     group_by(across(all_of(c(unit_cols, specialist_col)))) %>%
     summarise(ok.zero = all(ok[mode == "zero"]), ok.active = all(ok[mode == "active"]), .groups = "drop")
@@ -365,7 +397,7 @@ variance_shares <- function(data, column, fe, vcov_spec) {
   rhs <- if (is.null(fe)) "log.cv" else paste("log.cv |", fe)
   map_dfr(names(MODES), function(md) {
     mode_data <- data %>% filter(mode == md)
-    map_dfr(names(PIECES), function(p) {
+    map_dfr(mode_pieces(md), function(p) {
       m <- feols(as.formula(paste(p, "~", rhs)), data = mode_data, vcov = vcov_spec)
       tibble(mode = md, column = column, piece = p,
              share = unname(coef(m)["log.cv"]), se = unname(se(m)["log.cv"]), n = nobs(m))
@@ -401,6 +433,7 @@ geo_means_tbl_owner <- map_dfr(decomp_columns, function(cl) {
     summarise(
       geo.cv         = exp(mean(log.cv)),
       geo.U.fleet    = exp(mean(p.fishery)),
+      geo.spell      = exp(mean(p.spell)),
       geo.owner      = exp(mean(p.owner)),
       geo.combine    = exp(mean(p.combine)),
       share.combine.above.1 = mean(combine > 1),
@@ -410,7 +443,7 @@ geo_means_tbl_owner <- map_dfr(decomp_columns, function(cl) {
 })
 
 print(shares_tbl_owner %>% select(mode, column, piece.label, share, se, n), n = Inf, width = Inf)
-cat("Sum of the three shares by version and column (must be 1)\n")
+cat("Sum of the shares by version and column (must be 1)\n")
 print(shares_tbl_owner %>% group_by(mode, column) %>% summarise(sum.share = sum(share), .groups = "drop"),
       n = Inf)
 print(geo_means_tbl_owner, n = Inf, width = Inf)
@@ -426,15 +459,16 @@ cat("Wrote cv_decomposition_shares_owner.csv\n")
 # ============================================================================
 #
 # One row per sample (the owner FE column uses the same units as "Rolling,
-# multi", so it is not repeated). The correlations say how much each piece
-# reorders units when the zeros are dropped. The spell weights say how much
-# of the active-years version's third factor is forced there by one-year and
-# two-year spells rather than measured.
+# multi", so it is not repeated). Fishery riskiness is the same in both
+# versions by construction, so the correlations cover the owner-specific and
+# third factors, and say how much each reorders units when the zeros are
+# dropped. The spell weights say how much of the active-years version's third
+# factor is forced there by one-year and two-year spells rather than measured.
 
 compare_modes <- function(cl, unit_cols) {
   wide <- cl$data %>%
-    select(all_of(unit_cols), mode, all_of(names(PIECES)), combine, weight.spell1, weight.spell2) %>%
-    pivot_wider(names_from = mode, values_from = c(all_of(names(PIECES)), combine))
+    select(all_of(unit_cols), mode, p.owner, p.combine, combine, weight.spell1, weight.spell2) %>%
+    pivot_wider(names_from = mode, values_from = c(p.owner, p.combine, combine))
   dropped <- dropped_tbl_owner %>% filter(grain == cl$grain, subset == cl$subset)
   tibble(
     column                   = cl$column,
@@ -442,8 +476,7 @@ compare_modes <- function(cl, unit_cols) {
     n.units.before           = dropped$n.units.before,
     n.dropped.active         = dropped$n.dropped.active,
     n.dropped.zero           = dropped$n.dropped.zero,
-    cor.fishery              = cor(wide$p.fishery_zero, wide$p.fishery_active),
-    cor.owner                = cor(wide$p.owner_zero, wide$p.owner_active),
+    cor.owner               = cor(wide$p.owner_zero, wide$p.owner_active),
     cor.combine              = cor(wide$p.combine_zero, wide$p.combine_active),
     share.active.combine.gt1 = mean(wide$combine_active > 1),
     mean.weight.spell1       = mean(wide$weight.spell1),
@@ -484,10 +517,14 @@ mode_rows <- map_dfr(names(MODES), function(md) {
     transmute(
       column,
       `Geometric mean, fishery riskiness factor` = sprintf("%.3f", geo.U.fleet),
+      `Geometric mean, spell effect`             = sprintf("%.3f", geo.spell),
       `Geometric mean, owner-specific factor`    = sprintf("%.3f", geo.owner),
       `Geometric mean, third factor (CV / U)`    = sprintf("%.3f", geo.combine)
     ) %>%
     pivot_longer(-column, names_to = "Statistic", values_to = "cell")
+  if (!"p.spell" %in% mode_pieces(md)) {
+    geo_rows <- geo_rows %>% filter(Statistic != "Geometric mean, spell effect")
+  }
 
   bind_rows(share_rows, sum_row, geo_rows) %>%
     mutate(Statistic = factor(Statistic, levels = unique(Statistic))) %>%
@@ -523,14 +560,17 @@ cv_decomp_table_owner <- bind_rows(mode_rows, common_rows) %>%
 print(xtable(
   cv_decomp_table_owner,
   caption = paste(
-    "Exact decomposition of realized owner revenue CV into fishery riskiness, owner-specific",
-    "volatility and a third factor, with the years an owner did not fish a fishery counted as zeros",
-    "(top) or left out (bottom). The share rows give each piece's share of the variance in log CV",
-    "after removing the listed fixed effects, with standard errors in parentheses",
-    "(heteroskedasticity-robust for lifetime, clustered on owner and window for rolling). With zeros",
-    "the third factor is the diversification ratio, which is at most 1. With the years left out it",
-    "also holds the risk of moving between fisheries and can exceed 1. Both versions use the same",
-    "units, so realized CV is the same in both."
+    "Exact decomposition of realized owner revenue CV, with the years an owner did not fish a",
+    "fishery counted as zeros (top) or left out (bottom). The share rows give each piece's share of",
+    "the variance in log CV after removing the listed fixed effects, with standard errors in",
+    "parentheses (heteroskedasticity-robust for lifetime, clustered on owner and window for",
+    "rolling). Fishery riskiness is the fleet's CV over all of the owner's active years in both",
+    "versions. With the years left out, the owner's CV in each fishery is taken over the years it",
+    "fished there, and the spell effect is the fleet's CV over those same years relative to all",
+    "years (below 1 when the spells are short, miss closures or fall in calmer years). With zeros",
+    "the spell effect is 1 and the third factor is the diversification ratio, which is at most 1.",
+    "With the years left out the third factor also holds the risk of moving between fisheries and",
+    "can exceed 1. Both versions use the same units, so realized CV is the same in both."
   ),
   label = "tab:ch3-cv-decomposition-owner",
   align = c("l", "l", "l", rep("r", length(column_order)))
@@ -598,13 +638,15 @@ write.csv(cv_decomp_owner_by_phi, file.path(table_dir, "cv_decomposition_by_phi_
 cat("Wrote cv_decomposition_by_phi_owner.csv\n")
 
 # Figure, rolling grain, one panel per factor with both versions overlaid.
-# Realized CV is the same in both by construction, so its two series sit on
-# top of each other. The dashed line at 1 marks no effect for the two
-# multiplier factors.
+# Realized CV and fishery riskiness are the same in both by construction, so
+# their two series sit on top of each other, and the spell effect is 1 with
+# zeros. The dashed line at 1 marks no effect for the three multiplier
+# factors.
 
 FACET_LABELS <- c(
   "Realized CV",
-  "Fishery riskiness (U fleet)",
+  "Fishery riskiness (U fleet, all years)",
+  "Spell effect (U fleet, spells / all years)",
   "Owner-specific factor (U / U fleet)",
   "Third factor (CV / U)"
 )
@@ -626,7 +668,7 @@ fig_decomp_data <- cv_decomp_owner_by_phi %>%
     is.specialist.bin = bin.order == 0
   )
 
-ref_lines <- tibble(quantity = factor(FACET_LABELS[3:4], levels = FACET_LABELS), y = 1)
+ref_lines <- tibble(quantity = factor(FACET_LABELS[3:5], levels = FACET_LABELS), y = 1)
 dodge <- position_dodge(width = 0.45)
 
 figure_cv_decomp_owner <- fig_decomp_data %>%
@@ -641,10 +683,10 @@ figure_cv_decomp_owner <- fig_decomp_data %>%
   scale_x_discrete(limits = levels(fig_decomp_data$bin.label)) +
   scale_color_manual(values = setNames(MODE_COLORS, MODES), name = NULL) +
   scale_shape_manual(values = setNames(c(16, 17), MODES), name = NULL) +
-  facet_wrap(~quantity, ncol = 2, scales = "free_y") +
+  facet_wrap(~quantity, ncol = 3, scales = "free_y") +
   labs(
     # The identity and the factor definitions belong in the caption.
-    title = "Realized CV and its three factors (owner, rolling)",
+    title = "Realized CV and its factors (owner, rolling)",
     subtitle = "Geometric means by reallocation intensity, two-stage owner-clustered 95% CIs",
     x = "Reallocation intensity (Phi), specialists then increasing bins",
     y = "Geometric mean"
@@ -653,7 +695,7 @@ figure_cv_decomp_owner <- fig_decomp_data %>%
   theme(legend.position = "top")
 
 ggsave(file.path(figure_dir, "figure_cv_decomposition_by_phi_rolling_owner.png"),
-       figure_cv_decomp_owner, width = 9, height = 7, dpi = 300)
+       figure_cv_decomp_owner, width = 12, height = 7, dpi = 300)
 
 cat("Wrote figure_cv_decomposition_by_phi_rolling_owner.png\n")
 

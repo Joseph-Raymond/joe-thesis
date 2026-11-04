@@ -145,8 +145,14 @@ the years the owner actually fished it. Zeros make a switcher look volatile
 within each fishery and well hedged across them, and the two errors cancel in
 CV. Leaving them out keeps the owner-specific factor clean, but the third
 factor (`CV / U`) then also holds the risk of moving between fisheries and can
-exceed 1. A fishery fished in only one of a unit's years gets a CV of 0, so
-its risk lands in the third factor. Both versions run on the same units. It
+exceed 1. Fishery riskiness is the fleet's CV over all of the unit's active
+years in both versions, so in the second version a fourth factor, the spell
+effect (the fleet's CV over the owner's spells divided by its CV over all
+years), picks up how much calmer the fleet looks during the owner's spells
+(short spells, missed closures or calmer timing). It is exactly 1 with zeros.
+A fishery fished in only one of a unit's years gets a CV of 0, so the owner's
+side of its risk lands in the third factor and the fleet's side in the spell
+effect. Both versions run on the same units. It
 reads `ch3_panel.rdata` and `ch3_rolling_owner.rdata` (so
 `rolling_periods/01b_build_rolling_panel_owner.R` must have run) and writes
 `table_cv_decomposition_owner.tex`, `cv_decomposition_shares_owner.csv`,
