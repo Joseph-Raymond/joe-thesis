@@ -65,6 +65,9 @@
 # immediately after 01_build_panel.R, appended here purely to avoid
 # disturbing the previously-tested 01b_ through 13c_ order.
 #
+# 05c_table4_fishery_riskiness_rolling.R comes last because it needs both
+# rolling panels (vessel and owner). It reads nothing from 05b_ through 13c_.
+#
 # THIS CANNOT BE RUN LOCALLY, same as run_all.R, see 00_setup.R.
 
 source("code/empirical_pipeline/rolling_periods/01b_build_rolling_panel.R")
@@ -80,3 +83,4 @@ source("code/empirical_pipeline/rolling_periods/12c_predicted_bh_phi_rolling.R")
 source("code/empirical_pipeline/rolling_periods/13c_predicted_bh_phi_figures_rolling.R")
 source("code/empirical_pipeline/rolling_periods/01b_build_rolling_panel_owner.R")
 source("code/empirical_pipeline/rolling_periods/05b_table4_figure3_rolling_owner.R")
+source("code/empirical_pipeline/rolling_periods/05c_table4_fishery_riskiness_rolling.R")

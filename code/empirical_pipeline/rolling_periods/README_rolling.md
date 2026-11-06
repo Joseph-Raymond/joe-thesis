@@ -164,7 +164,26 @@ run_all_rolling.R                              # sources everything below in ord
   08b_state_contingent_activation_rolling.R     # Table 10/11-rolling, figure10b path
   09b_seasonal_overlap_rolling.R                # Table 12-rolling, pre/post-1995 overlap diagnostic
   10b_network_similarity_rolling.R              # Table 13-rolling (needs 08b_'s saved activation panel)
+  ...
+  01b_build_rolling_panel_owner.R               # owner-grain rolling panel
+  05b_table4_figure3_rolling_owner.R            # Table 4-rolling (owner)
+  05c_table4_fishery_riskiness_rolling.R        # Table 4-rolling with fishery riskiness as a control, vessel and owner
 ```
+
+`05c_` adds fishery riskiness (the `U_fleet` factor of the CV breakdown in
+`14_cv_decomposition*.R`, the owner's revenue-weighted average of
+fleet-level fishery CVs) as a control to Table 4-rolling's decomposed
+model, at both grains, to check whether part of the `Phi` coefficient
+reflects being in riskier fisheries. It builds `U_fleet` itself, so it does
+not need the `14_` scripts, but it checks its values against their saved
+output when that exists. Because `U_fleet` comes from the same window as CV
+and `Phi`, it also reports a version with revenue weights taken from the
+preceding 6 years, which reallocation inside the window cannot move. It
+writes `table4_fishery_riskiness_rolling.tex`,
+`table4_fishery_riskiness_rolling_owner.tex` and
+`table4_fishery_riskiness_summary_rolling.csv` (the change in the `Phi`
+coefficient against the no-control column on the same sample). It is an
+appendix robustness table and is not run through the stride-6 phase check.
 
 There is no `11b_`. Figure 7 (`11_switch_event_weights.R` in the baseline
 chain, switch events between consecutive trips weighted by co-participation
