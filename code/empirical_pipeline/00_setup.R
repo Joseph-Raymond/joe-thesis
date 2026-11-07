@@ -158,6 +158,23 @@ NON_HARVEST_FISHERY_CODES <- c("E91QV", "W22BV", "W22HV", "W2ABV", "W2BBV")
 
 EXCLUDED_GEAR_DIGITS_DATA_GAP <- c("04", "08", "18")
 
+# Display labels for the Table 4 family of LaTeX tables (passed to etable as
+# dict = TABLE4_DICT on the tex = TRUE calls only, the console printouts keep
+# the raw R names). Uses the chapter's notation. A z. prefix is a variable
+# standardized within the estimation sample.
+TABLE4_DICT <- c(
+  rev.cv = "Revenue CV", z.rev.cv = "Revenue CV (z)",
+  H_bar = "$\\overline{H}$", H_LR = "$H^{LR}$", Phi = "$\\Phi$", Phi_sq = "$\\Phi^2$",
+  z.H_bar = "$\\overline{H}$ (z)", z.H_LR = "$H^{LR}$ (z)", z.Phi = "$\\Phi$ (z)",
+  residencyR = "Resident", residencyU = "Residency unknown",
+  n.held.avg = "Held count", n.fisheries.fished.window = "Fished-fishery count",
+  n.fished.avg = "Held count, fished", n.unfished.avg = "Held count, unfished",
+  z.n.fished.avg = "Held count, fished (z)", z.n.unfished.avg = "Held count, unfished (z)",
+  prime.fishery = "Primary fishery", prime.fishery.window = "Primary fishery",
+  window.start = "Window start year",
+  Vessel.ADFG.Number = "Vessel", File.Number = "Owner"
+)
+
 # ---- small helpers ---------------------------------------------------
 
 strip_fishery_space <- function(x) str_replace_all(x, " ", "")

@@ -286,13 +286,31 @@ run_grain <- function(g) {
     b3 = fit("H_LR + Phi + U.fleet.prior", fe, panel_b)
   )
 
-  dict <- c(U.fleet = "Fishery riskiness (U fleet)", U.fleet.prior = "Fishery riskiness, prior-window weights",
-            passive.cv = "Passive benchmark CV", ufleet.decile = "U fleet decile")
+  # Plain headers for the console and the summary CSV
   headers <- c("No control", "U fleet", "U fleet deciles", "Prime x window FE", "Passive CV",
                "No control (B)", "U fleet (B)", "Prior weights (B)")
-  etable(models, headers = headers, dict = dict, tex = TRUE,
+  # The LaTeX table uses the chapter's notation (TABLE4_DICT from 00_setup.R
+  # plus this table's own controls), with a top row naming the two samples
+  dict_tex <- c(
+    TABLE4_DICT,
+    U.fleet = "$U^{\\text{fleet}}$", U.fleet.prior = "$U^{\\text{fleet}}$, prior-window weights",
+    passive.cv = "Passive benchmark CV", ufleet.decile = "$U^{\\text{fleet}}$ decile",
+    "prime.fishery.window^window.start" = "Primary fishery $\\times$ window start year"
+  )
+  # Columns 2 and 4 share a header and differ only in the fixed-effect rows
+  headers_tex <- list(
+    ":_:Sample" = list("All multi-fishery windows" = 5, "With a preceding window" = 3),
+    "Control" = c("None", "$U^{\\text{fleet}}$", "$U^{\\text{fleet}}$ deciles", "$U^{\\text{fleet}}$",
+                  "Passive CV", "None", "$U^{\\text{fleet}}$", "Prior weights")
+  )
+  etable(models, headers = headers_tex, dict = dict_tex, tex = TRUE,
          file = file.path(table_dir, g$table_file), replace = TRUE)
-  print(etable(models, headers = headers, dict = dict))
+  # Same star cutoffs as the LaTeX table (1, 5 and 10 percent)
+  print(etable(models, headers = headers,
+               dict = c(U.fleet = "Fishery riskiness (U fleet)",
+                        U.fleet.prior = "Fishery riskiness, prior-window weights",
+                        passive.cv = "Passive benchmark CV", ufleet.decile = "U fleet decile"),
+               signif.code = c("***" = 0.01, "**" = 0.05, "*" = 0.10)))
   cat("Wrote", g$table_file, "\n")
 
   # How far each control moves the Phi and H_LR coefficients, against the

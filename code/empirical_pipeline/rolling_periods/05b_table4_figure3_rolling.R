@@ -120,6 +120,7 @@ etable(
   # here since this table has the exact same six-column header pattern.
   headers = c("Baseline", "Decomposed", "Baseline (z)", "Decomposed (z)",
               "Vessel FE", "Weighted"),
+  dict = TABLE4_DICT,
   tex = TRUE,
   file = file.path(table_dir, "table4_decomposition_regression_rolling.tex"),
   replace = TRUE
@@ -160,6 +161,7 @@ etable(
   m_baseline_std_pooled_roll, m_decomposed_std_pooled_roll,
   headers = c("Baseline (pooled)", "Decomposed (pooled)",
               "Baseline (pooled, z)", "Decomposed (pooled, z)"),
+  dict = TABLE4_DICT,
   tex = TRUE,
   file = file.path(table_dir, "table4_decomposition_regression_pooled_rolling.tex"),
   replace = TRUE

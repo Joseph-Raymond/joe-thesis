@@ -97,6 +97,7 @@ model_decomposed_std <- feols(z.rev.cv ~ z.H_LR + z.Phi | prime.fishery, data = 
 etable(
   model_baseline, model_decomposed, model_baseline_std, model_decomposed_std,
   headers = c("Baseline", "Decomposed", "Baseline (z)", "Decomposed (z)"),
+  dict = TABLE4_DICT,
   tex = TRUE,
   file = file.path(table_dir, "table4_decomposition_regression.tex"),
   replace = TRUE
@@ -132,6 +133,7 @@ etable(
   model_baseline_std_pooled, model_decomposed_std_pooled,
   headers = c("Baseline (pooled)", "Decomposed (pooled)",
               "Baseline (pooled, z)", "Decomposed (pooled, z)"),
+  dict = TABLE4_DICT,
   tex = TRUE,
   file = file.path(table_dir, "table4_decomposition_regression_pooled.tex"),
   replace = TRUE

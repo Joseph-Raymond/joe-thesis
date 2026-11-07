@@ -118,6 +118,7 @@ model_decomposed_std_owner <- feols(z.rev.cv ~ z.H_LR + z.Phi | prime.fishery, d
 etable(
   model_baseline_owner, model_decomposed_owner, model_baseline_std_owner, model_decomposed_std_owner,
   headers = c("Baseline", "Decomposed", "Baseline (z)", "Decomposed (z)"),
+  dict = TABLE4_DICT,
   tex = TRUE,
   file = file.path(table_dir, "table4_decomposition_regression_owner.tex"),
   replace = TRUE
@@ -158,6 +159,7 @@ etable(
   model_baseline_std_pooled_owner, model_decomposed_std_pooled_owner,
   headers = c("Baseline (pooled)", "Decomposed (pooled)",
               "Baseline (pooled, z)", "Decomposed (pooled, z)"),
+  dict = TABLE4_DICT,
   tex = TRUE,
   file = file.path(table_dir, "table4_decomposition_regression_pooled_owner.tex"),
   replace = TRUE
@@ -210,6 +212,7 @@ etable(
   model_baseline_std_resid_owner, model_decomposed_std_resid_owner,
   headers = c("Baseline (+residency)", "Decomposed (+residency)",
               "Baseline (z, +residency)", "Decomposed (z, +residency)"),
+  dict = TABLE4_DICT,
   tex = TRUE,
   file = file.path(table_dir, "table4_decomposition_regression_owner_residency.tex"),
   replace = TRUE

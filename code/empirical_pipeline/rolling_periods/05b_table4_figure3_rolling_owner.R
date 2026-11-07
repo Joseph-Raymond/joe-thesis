@@ -168,6 +168,7 @@ etable(
   # out, so shortening them costs nothing a reader needs.
   headers = c("Baseline", "Decomposed", "Baseline (z)", "Decomposed (z)",
               "Owner FE", "Weighted"),
+  dict = TABLE4_DICT,
   tex = TRUE,
   file = file.path(table_dir, "table4_decomposition_regression_rolling_owner.tex"),
   replace = TRUE
@@ -226,6 +227,7 @@ etable(
   m_baseline_std_resid_roll_owner, m_decomposed_std_resid_roll_owner,
   headers = c("Baseline (+residency)", "Decomposed (+residency)",
               "Baseline (z, +residency)", "Decomposed (z, +residency)"),
+  dict = TABLE4_DICT,
   tex = TRUE,
   file = file.path(table_dir, "table4_decomposition_regression_rolling_owner_residency.tex"),
   replace = TRUE
@@ -264,6 +266,7 @@ etable(
   m_baseline_std_pooled_roll_owner, m_decomposed_std_pooled_roll_owner,
   headers = c("Baseline (pooled)", "Decomposed (pooled)",
               "Baseline (pooled, z)", "Decomposed (pooled, z)"),
+  dict = TABLE4_DICT,
   tex = TRUE,
   file = file.path(table_dir, "table4_decomposition_regression_pooled_rolling_owner.tex"),
   replace = TRUE
@@ -774,8 +777,8 @@ etable(
   m_extmargin_held_roll_owner, m_extmargin_fishedcount_roll_owner,
   m_extmargin_joint_roll_owner, m_extmargin_joint_std_roll_owner, m_extmargin_joint_ownerfe_roll_owner,
   m_extmargin_joint_quad_roll_owner,
-  headers = c("Held count", "Fished count", "Joint", "Joint (z)", "Joint (owner FE)", "Joint (Phi\\textsuperscript{2})"),
-  dict = c(Phi_sq = "Phi\\textsuperscript{2}"),
+  headers = c("Held count", "Fished count", "Joint", "Joint (z)", "Joint (owner FE)", "Joint ($\\Phi^2$)"),
+  dict = TABLE4_DICT,
   tex = TRUE,
   file = file.path(table_dir, "table4b_extensive_margin_rolling_owner.tex"),
   replace = TRUE
