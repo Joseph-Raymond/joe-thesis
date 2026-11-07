@@ -228,10 +228,12 @@ run_grain <- function(g) {
     saved <- as.data.table(chk[[g$check_object]])
     if ("mode" %in% names(saved)) saved <- saved[mode == "zero"]
     saved <- unique(saved[, c(keys, g$check_column), with = FALSE])
+    # Renamed so it cannot clash with U.fleet in u_now (the vessel column has the same name)
+    setnames(saved, g$check_column, "U.saved")
     both <- merge(u_now, saved, by = keys)
     cat("U_fleet against the saved", g$check_object, "- units compared -", nrow(both),
         ", max relative gap (should be about 0) -",
-        signif(max(abs(both$U.fleet / both[[g$check_column]] - 1)), 3), "\n")
+        signif(max(abs(both$U.fleet / both$U.saved - 1)), 3), "\n")
   } else {
     cat("No saved", g$check_object, "with", g$check_column, "to check U_fleet against",
         "(run the 14_ script first for that check)\n")
