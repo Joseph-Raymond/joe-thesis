@@ -146,13 +146,14 @@ within each fishery and well hedged across them, and the two errors cancel in
 CV. Leaving them out keeps the owner-specific factor clean, but the third
 factor (`CV / U`) then also holds the risk of moving between fisheries and can
 exceed 1. Fishery riskiness is the fleet's CV over all of the unit's active
-years in both versions, so in the second version a fourth factor, the spell
-effect (the fleet's CV over the owner's spells divided by its CV over all
-years), picks up how much calmer the fleet looks during the owner's spells
-(short spells, missed closures or calmer timing). It is exactly 1 with zeros.
+years in both versions, so in the second version a fourth factor, the
+years-active effect (the fleet's CV over the years the owner was active in
+each fishery divided by its CV over all active years), picks up how much calmer
+the fleet looks in those years (few years, missed closures or calmer
+timing). It is exactly 1 with zeros.
 A fishery fished in only one of a unit's years gets a CV of 0, so the owner's
-side of its risk lands in the third factor and the fleet's side in the spell
-effect. Both versions run on the same units. It
+side of its risk lands in the third factor and the fleet's side in the
+years-active effect. Both versions run on the same units. It
 reads `ch3_panel.rdata` and `ch3_rolling_owner.rdata` (so
 `rolling_periods/01b_build_rolling_panel_owner.R` must have run) and writes
 `table_cv_decomposition_owner.tex`, `cv_decomposition_shares_owner.csv`,
@@ -162,7 +163,20 @@ reads `ch3_panel.rdata` and `ch3_rolling_owner.rdata` (so
 `intermediate data/ch3_cv_decomposition_owner.rdata`. On top of the `14_`
 checks it prints a no-gap check (units that fished every fishery in every
 active year must come out identical in both versions) and the revenue weight
-on one-year and two-year spells.
+on fisheries fished in only one or two years. Section 8b adds three checks on
+the version with skipped years left out. The fleet-swapped version replaces
+the owner's revenue in each fishery with the fleet series over the same years
+(scaled to the owner's own average there) and splits CV into fishery
+riskiness, the pattern of active years (`CV_swap / U_fleet`) and the owner's
+own volatility (`CV / CV_swap`), a grouping in which short stretches in a
+fishery cancel out. The short-stretch check measures how much a CV over k of n
+active years shrinks, for owners and for the fleet, and what that alone does
+to the years-active effect and the last factor (rolling grain). The
+fleet-size check relates the factors to how many owners are behind each fleet
+series. These write `cv_decomposition_swap_owner.csv`,
+`cv_decomposition_swap_by_phi_owner.csv`,
+`cv_decomposition_short_stretch_owner.csv` and
+`cv_decomposition_fleet_size_owner.csv`.
 
 `11_switch_event_weights.R` is numbered last purely for `run_all.R`
 ordering convenience. Its real dependencies are `01_build_panel.R`
